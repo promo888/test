@@ -187,7 +187,7 @@ def getMissingBlocks():
     pass
 
 
-########################
+##############################################################################
 #3CHAR MSG IDENTIFIER
 SINGLE_SIG_MSG = "STX"
 MULTI_SIG_MSG = "MTX"
@@ -204,7 +204,14 @@ last_relay_amount = None
 def getConfigValue(key):
     pass
 
+def validateTX(tx):
+    # update T_Q[tx['msg_hash']['tx']] = tx for a valid TX and remove if exist in BLOCK else resubmit in next block
+    # update T_Q[tx['msg_hash']['utx']] = tx_hash for unspent outputs
+    pass
+
 def validateMsgByType(msg)
+    #validate fields, format, ...etc
+    #if tx -> validate TX
     pass
 
 def isPersistBatchRule():
@@ -289,9 +296,10 @@ def onNewMessage(msg):
 
 def onNodeStart():
     #Sync time
-    #Sync chain DB
+    #Sync chain DB (last block related data (txs,utxo,service...etc + resubmit pending TXs)
     #Sync penalties
     #Match persisted pending DBQ vs DB -> remove duplicates (msghash keys from db)
     #Start UDP server for incoming msgs from Nodes
     #Start WebSocketServer for serving WWW requests
+
     pass
