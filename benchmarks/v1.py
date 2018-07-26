@@ -1,3 +1,5 @@
+#Ok10git
+
 import os, sys, time
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
@@ -50,6 +52,10 @@ def diffTimeSyncWithMasterNode(): #suppress latency
 def isBlockTime():
     pass
 
+def isDispatchTime():
+    if getConfig('EllapsedSecsFromBlockStart') >= getEllapsedTimefromLastBlock and getEllapsedTimefromLastBlock <= getConfig('BlockSubmitSecs'):
+    pass
+
 def submitMasterBlock():
     pass
 
@@ -58,9 +64,13 @@ def amImaster():
 
 def formatTXasMaster(tx):
     # remove Client's DateTime field -> could be erroneous/not in sync #TODO Nonce field
-    distributeTx(tx)
-    if isBlockTime():
+    #distributeTx(tx)
+    if amImaster() and (isBlockTime() or isDispatchTime())  and not isDispatched(tx):
         submitMasterBlock()
+    elif amImaster() and not isBlockTime() and getEllapsedSecsFromLastBlock() < getConfig('BlockSubmitSecs') and not isDispatched(tx):
+        dispatchToNodes() #txs array
+    elif not amImaster() and getEllapsedSecsFromLastBlock() < getConfig('BlockSubmitSecs') and not isDispatched(tx):
+        dispatch2Master()
     pass
 
 
@@ -176,3 +186,112 @@ def getMissingBlocks():
         RETRIEVING_BLOCKS = False
     pass
 
+
+########################
+#3CHAR MSG IDENTIFIER
+SINGLE_SIG_MSG = "STX"
+MULTI_SIG_MSG = "MTX"
+BLOCK_MSG = "BLK"
+VOTE_MSG = "VOT"
+SERVICE_TX = "SRV"
+
+Q = {}
+T_Q = {} #temp Q for matching and removing TXs in blocks
+last_relay_time = None
+last_relay_amount = None
+
+
+def getConfigValue(key):
+    pass
+
+def validateMsgByType(msg)
+    pass
+
+def isPersistBatchRule():
+    batch_amount = getConfigValue('q_batch_amount')
+    if len(Q) >= batch_amount:
+        return True
+    else:
+        return False
+
+def getHash(msg):
+    pass
+
+def removeMsgFromPendingQ(msg):
+    #del Q[msg['msg_hash']]
+    pass
+
+def persistBatchToDB():
+    batch_amount = getConfigValue('q_batch_amount')
+    last_relay_time = time.time()
+    last_relay_amount = batch_amount if len(Q) >= batch_amount else len(Q)
+    #TODO persist batch
+    pass
+
+def appendMsgToPendingQ(msg):
+    Q[msg['msg_hash']].append(msg)
+    pass
+
+def isRelayRule():
+    relay_period = getConfigValue('q_batch_relay_secs')
+    to_relay = False
+    if time.time() - last_relay_time >= relay_period:
+        to_relay = True
+
+
+def removeBatchFromPendingQ():
+    count = 0
+    for e in Q:
+        del e
+        count += 1
+        if count == last_relay_amount:
+            break
+    pass
+
+
+def relay(ip_list, msg_list, msg_type):
+    #removeBatchFromPendingQ(msg_list, msg_type)
+    pass
+
+def getNext3ValidNodesFromTheLastBlock():
+    pass
+
+def relayToNodes():
+    pass
+
+def relayToMaster():
+    pass
+
+def getDB(k):
+    pass
+
+def onNewMessage(msg):
+    if msg['msg']['msg_type'] == BLOCK_MSG:
+        for m in msg['tx_list']:
+            if m['tx_hash']
+        pass
+    else:
+        if not validateMsgByType(msg) and getDB(msg['msg_hash']) is None:
+            return
+        else:
+            appendMsgToPendingQ(msg)
+            if isPersistBatchRule():
+                persistBatchToDB()
+            if amImaster():
+                if isRelayRule():
+                    relayToNodes()
+            else:
+                relayToMaster()
+            removeBatchFromPendingQ()
+    # AutoClean Q Pending DBs once a week
+
+
+
+def onNodeStart():
+    #Sync time
+    #Sync chain DB
+    #Sync penalties
+    #Match persisted pending DBQ vs DB -> remove duplicates (msghash keys from db)
+    #Start UDP server for incoming msgs from Nodes
+    #Start WebSocketServer for serving WWW requests
+    pass
