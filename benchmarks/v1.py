@@ -190,7 +190,8 @@ def getMissingBlocks():
 ##############################################################################
 #3CHAR MSG IDENTIFIER
 SINGLE_SIG_MSG = "STX"
-MULTI_SIG_MSG = "MTX"
+#MULTI_SIG_MSG = "MTX"
+TX_MSG = '_TX'
 BLOCK_MSG = "BLK"
 VOTE_MSG = "VOT"
 SERVICE_TX = "SRV"
@@ -205,14 +206,43 @@ def getConfigValue(key):
     pass
 
 def validateTX(tx):
+    #validate inputs/outputs are valid
     # update T_Q[tx['msg_hash']['tx']] = tx for a valid TX and remove if exist in BLOCK else resubmit in next block
     # update T_Q[tx['msg_hash']['utx']] = tx_hash for unspent outputs
     pass
 
+
+def v1(msg):
+    GENESIS_MSG('1', 'TX', '9d25675fde074d1444439ef431848bd8b5314b268fd8edbe4e2a59d0700d6da2', ('1/1',
+                                                                                        '[36406343224692063900833029031111854117178867930743205589528043357636889016454 6504559082621797771456835002966813839522833454231390100388342046748949207233]',
+                                                                                        '[GENESIS]',
+                                                                                        '[26063413541153741795311009536578546636609555338262636333004632681873009397378 72849517704928537413839627784171110912318787674252857837896776821469476844155]',
+                                                                                        '19773ac41f111ea4ad5ef20ff1273aa0739f15661dafa3b4787961fd84bfb369',
+                                                                                        '1', 10000000000,
+                                                                                        '01-01-2018 00:00:00.000'))
+
+    GENESIS_HASH = 'e2459cf1ea4f8245ef1b6985e8a83c6e946347c7a07ed8708d52c3481787ed47'
+    #TODo replace by a GENESIS_HASH if len(DB_TXs == 0) -> on startNode
+    # v1_genesis_fields
+    # msg_fields_tx = (
+    # 'ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'input_txs', 'pub_key', 'to_addr', 'asset_type',
+    # 'amount', 'ts')  # order & fields are handled by ver_num
+    # # genesis_tx = ('1', '_TX', '1/1', '[%s %s]' % (r, s), ' [GENESIS]', 'GENESIS', to_sha256(pbk1), '1', 10000000000, merkle_date)
+    # genesis_tx = (
+    # '1', '_TX', '1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1)), '1',
+    # 10000000000, merkle_date)  # from_addre sha256(pubkey)
+
+    pass
+
+def validateMsgByVersion(func, msg)
+    return func(msg)
+
 def validateMsgByType(msg)
     #validate fields, format, ...etc
     #if tx -> validate TX
-    pass
+    res = False
+    res = validateMsgByVersion('v' + msg[0], msg)
+    return res
 
 def isPersistBatchRule():
     batch_amount = getConfigValue('q_batch_amount')
@@ -272,24 +302,71 @@ def relayToMaster():
 def getDB(k):
     pass
 
-def onNewMessage(msg):
-    if msg['msg']['msg_type'] == BLOCK_MSG:
-        for m in msg['tx_list']:
-            if m['tx_hash']
-        pass
+
+def verifyTX(tx):
+    #if not exist in DB
+    #remove from DB(Q) if False, preserve in DB if True
+    #return True or False
+    pass
+
+
+def verifyBlockTxs(block):
+    declined_txs = []
+    for m in block['tx_list']:
+        tx = m['msg']
+        verifiedTx = verifyTx(tx)
+        if not verifiedTx:
+            declined_txs.append(tx)
+    if len(declined_txs) > 0:
+        return False
     else:
-        if not validateMsgByType(msg) and getDB(msg['msg_hash']) is None:
-            return
+        return True
+
+
+def vote2Master(master_ip, block_hash, true_or_false):
+    pass
+
+
+def voteBlock(block):
+    #vote(block['MASTER_IP'], True|False)
+    approved_block = verifyBlockTxs(block)
+    pass
+
+
+def onNewMessage(msg):
+    if msg['msg']['msg_type'] == BLOCK_MSG and not amImaster():
+        missing_txs = []
+        for m in msg['tx_list']:
+            tx = m['tx_hash']
+            if not getDB(tx) is None and not Q[tx] is None:
+                #TX not exist - DON'T VOTE and get transaction - if still same master then vote
+                missing_txs.append(tx)
+        if len(missing_txs) > 0:
+            getMissingTXs(missing_txs)
+            #TODO
+            #if current_time < next_master_end (previous votes being submitted)
+            #    if len(declined_txs) == 0:
+            #         voteBlock(msg)
         else:
-            appendMsgToPendingQ(msg)
-            if isPersistBatchRule():
-                persistBatchToDB()
-            if amImaster():
-                if isRelayRule():
-                    relayToNodes()
+            voteBlock(msg)
+    elif msg['msg']['msg_type'] == VOTE_MSG:
+            #TODO time < whoIsPrevMaster() nextToPrevTime -> append+relay service block msg
+            pass
+    else:
+        if msg['msg']['msg_type'] == TX_MSG:
+            if not validateMsgByType(msg): #Impose DB check - or not getDB(msg['msg_hash']) is None: # and msg['msg']['msg_type'] is not BLOCK_MSG  and msg['msg']['msg_type'] is not VOTE_MSG:
+                #Not valid or duplicate
+                return
             else:
-                relayToMaster()
-            removeBatchFromPendingQ()
+                appendMsgToPendingQ(msg)
+                if isPersistBatchRule():
+                    persistBatchToDB() #TODO task scheduler
+                if amImaster():
+                    if isRelayRule():
+                        relayToNodes() #TODO task scheduler
+                else:
+                    relayToMaster()
+                removeBatchFromPendingQ() #BUT persist valid txs - Q is only 4 dispatch
     # AutoClean Q Pending DBs once a week
 
 

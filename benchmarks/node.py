@@ -107,7 +107,8 @@ class Node:
 
     def getNodesList(self):
         nodes_list = []
-        for key in self.config['nodes']: nodes_list.append({'sig': key, 'ip': self.config['nodes'][key]})
+        for key in self.config['nodes']:
+            nodes_list.append({'sig': key, 'ip': self.config['nodes'][key]})
         return nodes_list
 
     def veirifyNode(self, nodesig="", nodeip='localhost'):
