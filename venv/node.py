@@ -160,6 +160,7 @@ def start_node(pub_key):
         print(RUNTIME_CONFIG)
 
 
+
 #TODO if main startNode(pbk) #19773ac41f111ea4ad5ef20ff1273aa0739f15661dafa3b4787961fd84bfb369
 start_node('71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16') #test2
 print('GENESIS exist: ', isDBvalue(b'GENESIS', TXS_DB))
