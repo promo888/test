@@ -156,6 +156,7 @@ def start_node(pub_key):
         setNodeId(pub_key)
         start = time.time()
         init_servers()
+        insertGenesis()
         print('Started at %s' % time.ctime(start))
         print(RUNTIME_CONFIG)
 

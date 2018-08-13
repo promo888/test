@@ -33,8 +33,9 @@ VOTES_DB = './..%s/db/VOTES' % ROOT_DIR
 BLOCKS_DB = './..%s/db/BLOCKS' % ROOT_DIR
 CONTRACTS_DB = './..%s/db/CONTRACTS' % ROOT_DIR
 SERVICE_DB = './..%s/db/SERVICE' % ROOT_DIR
+PENDING_DB = './..%s/db/PENDING' % ROOT_DIR
 DB = None
-RUNTIME_CONFIG = {'FileConfig': None, 'NodeType': NODE_TYPE, 'NodeId': None, 'TXS_DB': TXS_DB, 'UTXS_DB': UTXS_DB, 'VOTES_DB': VOTES_DB, 'BLOCKS_DB': BLOCKS_DB, 'CONTRACTS_DB': CONTRACTS_DB, 'SERVICE_DB': SERVICE_DB}
+RUNTIME_CONFIG = {'FileConfig': None, 'NodeType': NODE_TYPE, 'NodeId': None, 'PENDING_DB': PENDING_DB, 'TXS_DB': TXS_DB, 'UTXS_DB': UTXS_DB, 'VOTES_DB': VOTES_DB, 'BLOCKS_DB': BLOCKS_DB, 'CONTRACTS_DB': CONTRACTS_DB, 'SERVICE_DB': SERVICE_DB}
 
 
 
@@ -51,6 +52,8 @@ def setNodeDb(pub_key):
     global VOTES_DB
     global BLOCKS_DB
     global CONTRACTS_DB
+    global SERVICE_DB
+    global PENDING_DB
     global RUNTIME_CONFIG
     TXS_DB = './..%s/db/%s/TXS' % (ROOT_DIR, pub_key)
     UTXS_DB = './..%s/db/%s/UTXS' % (ROOT_DIR, pub_key)
@@ -58,17 +61,25 @@ def setNodeDb(pub_key):
     BLOCKS_DB = './..%s/db/%s/BLOCKS' % (ROOT_DIR, pub_key)
     CONTRACTS_DB = './..%s/db/%s/CONTRACTS' % (ROOT_DIR, pub_key)
     SERVICE_DB = './..%s/%s/SERVICE' % (ROOT_DIR, pub_key)
+    PENDING_DB = './..%s/%s/PENDING' % (ROOT_DIR, pub_key)
     RUNTIME_CONFIG['TXS_DB'] = TXS_DB
     RUNTIME_CONFIG['UTXS_DB'] = UTXS_DB
     RUNTIME_CONFIG['VOTES_DB'] = VOTES_DB
     RUNTIME_CONFIG['BLOCKS_DB'] = BLOCKS_DB
     RUNTIME_CONFIG['CONTRACTS_DB'] = CONTRACTS_DB
     RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
+    RUNTIME_CONFIG['PENDING_DB'] = PENDING_DB
 
 
 
 def getNodeId():
     return NODE_ID
+
+
+def insertDB(bin_key, bin_value, db_path):
+    global DB
+    DB = leveldb.LevelDB(db_path)
+    DB.Put(bin_key, bin_value)
 
 
 def isDBvalue(bin_key, db_path):
@@ -102,8 +113,8 @@ def utc():
 
 def insertGenesis(): #TODO onStartNode
     if not isDBvalue(b'GENESIS', TXS_DB):
-        txs_db = leveldb.LevelDB(TXS_DB)
-        utxs_db  = leveldb.LevelDB(UTXS_DB)
+        #txs_db = leveldb.LevelDB(TXS_DB)
+        #utxs_db  = leveldb.LevelDB(UTXS_DB)
         merkle_date = '01-01-2018 00:00:00.000'
         genesis_pub_key = {'x': 26063413541153741795311009536578546636609555338262636333004632681873009397378,
                            'y': 72849517704928537413839627784171110912318787674252857837896776821469476844155}
@@ -112,10 +123,11 @@ def insertGenesis(): #TODO onStartNode
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
         genesis_msg_hash = 'fb40a6dc1a58ba0816967410ad2fda3febc14d82e673cabdcb077ef53d1b4b7b'
         msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'input_txs', 'pub_keys', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
-        genesis_tx = ['1', '_TX', '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[GENESIS]', '[%s %s]' % (pub_keys['x'], pub_keys['y']), genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
-        genesis_msg = ('1', '_TX', genesis_msg_hash, genesis_msg_tx)
+        genesis_tx = ['1', '_TX', '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[GENESIS]', '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
+        genesis_msg = ('1', '_TX', genesis_msg_hash, genesis_tx)
         print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
         # msg_fields = ['%s' % t for t in msg_fields_tx]
+        insertDB(b'GENESIS', bytes(str(msg_fields_tx).replace('[', '').replace(']', ''), 'utf8'), 'utf8')
 
     #TO UTXO DB
 
