@@ -43,12 +43,14 @@ class Node:
 
         :return: miner's turn index in config
         """
-        start_time = datetime(2017, 1, 1)  # BlockChain start - TODO change to 2018 real start date
+        start_time = datetime(2018, 1, 1)  # BlockChain start - TODO change to 2018 real start date
         current_time = datetime.utcnow()
         s = calendar.timegm(start_time.utctimetuple())
         e = calendar.timegm(current_time.utctimetuple())
         ellapsed_sec = (s - e)  # seconds ellapsed since genesis
         miners_amount = len(self.config['nodes'])
+        #TODO getPenaltiedFromDB -> if penaltied return next NotPenaltied #ValidHash: Hash of Last (TXS, UTXS, SERVICE (Penalties) dbs)
+
         return (ellapsed_sec % miners_amount)  # miner's index in config
 
     def redirectToMaster(self):
@@ -214,7 +216,7 @@ class Node:
         # print("Close the client socket")
         # writer.close()
 
-        data = (yield from reader.read(8192)).decode("utf-8")
+        data = (yield from reader.read(512)).decode("utf-8") #1024 8192
         #data = reader.read(8192)
         #request = data.decode('utf-8')
         print("Request: ", data)

@@ -8,11 +8,23 @@
 #import keras
 
 #/home/igorb/PycharmProjects/test
+import sys, os, multiprocessing, subprocess, asyncio, aiohttp
 import leveldb
-leveldb.DestroyDB('./../db')
-db = leveldb.LevelDB('./../db')
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+print('ROOT_DIR', ROOT_DIR)
+TXS_DB = './../%s/TXS' % ROOT_DIR
+UTXS_DB = './../%s/UTXS' % ROOT_DIR
+VOTES_DB = './../%s/VOTES' % ROOT_DIR
+BLOCKS_DB = './../%s/BLOCKS' % ROOT_DIR
+CONTRACTS_DB = './../%s/CONTRACTS' % ROOT_DIR
+print('CONTRACTS_DB', CONTRACTS_DB)
+
+DEFAULT_DB = './../db'
+leveldb.DestroyDB(DEFAULT_DB)
+db = leveldb.LevelDB(DEFAULT_DB)
 db.Put(b'key 1', b'value 2')
 print(db.Get(b'key 1'))
+#print(db.Get(b'key NOT_EXIST'))
 print(dir(db))
 print(dir(leveldb))
 
@@ -26,6 +38,24 @@ from fastecdsa.point import Point
 m = 'Message to sign with ECDSA'
 private_key, public_key = keys.gen_keypair(curve.P256)
 
+
+def isDBvalue(bin_key, db_path):
+    try:
+        if db is None:
+            db = leveldb.LevelDB(db_path) #Once init held by the process
+        value = db.Get(bin_key)
+        #print('isDBvalue value', value, type(value))
+        return True #value
+    except Exception as e:
+        #TODO logger
+        #print('Exception isDbValue: ', e)
+        return False
+
+print(isDBvalue(b'key 1', DEFAULT_DB), isDBvalue(b'key 1', DEFAULT_DB) is True)
+print(isDBvalue(b'GENESIS', DEFAULT_DB), isDBvalue(b'GENESIS', DEFAULT_DB) is False)
+
+def insertGenesis(): #TODO onStartNode
+    tx_db = leveldb.LevelDB(TXS_DB)
 
 import time #todo change to utc time
 from Crypto.Hash import SHA256
@@ -55,15 +85,15 @@ valid = ecdsa.verify((r, s), m, pbk1, hashfunc=ecdsa.sha256) #default curve=P256
 print('valid imported ecdsa sig', valid, pbk == pbk1, pbk1, 'addr', to_sha256(pbk1), type(pbk1))
 merkle_date = '01-01-2018 00:00:00.000'
 #genesis_tx = {'from_addr': 'GENESIS', 'to_addr': to_sha256(pbk1), 'asset_type': '1', 'amount': 10000000000, 'input_tx': 'GENESIS', 'ts': merkle_date}
-msg_fields_tx = ('ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'input_txs', 'pub_key', 'to_addr', 'asset_type', 'amount', 'ts') #order & fields are handled by ver_num
+msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'input_txs', 'pub_keys', 'to_addr', 'asset_type', 'amount', 'ts'] #order & fields are handled by ver_num
 #genesis_tx = ('1', '_TX', '1/1', '[%s %s]' % (r, s), ' [GENESIS]', 'GENESIS', to_sha256(pbk1), '1', 10000000000, merkle_date)
-genesis_tx = ('1', '_TX', '1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1)), '1', 10000000000, merkle_date) #from_addre sha256(pubkey)
+genesis_tx = ['1', '_TX', '1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1.x)+str(pbk1.y)), '1', 10000000000, merkle_date] #from_addre sha256(pubkey)
 print('GENESIS TX', genesis_tx)
-print('GENESIS hash', to_sha256(str(genesis_tx)))
+print('GENESIS hash', to_sha256(str(genesis_tx)), type(to_sha256(str(genesis_tx))))
 #print((genesis_tx.values())) not ordered
 msg_fields = ['%s' % t for t in msg_fields_tx]
-print(msg_fields, len(msg_fields))
-genesis_msg_tx = ('1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1)), '1', 10000000000, merkle_date)
+print('msg_fields', len(msg_fields), str(msg_fields) == str(msg_fields_tx), msg_fields)
+genesis_msg_tx = ('1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1.x)+str(pbk1.y)), '1', 10000000000, merkle_date)
 genesis_msg =  ('1', 'TX', to_sha256(str(genesis_msg_tx)), genesis_msg_tx)
 print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
 r, s = ecdsa.sign(str(genesis_msg[3]), prk)

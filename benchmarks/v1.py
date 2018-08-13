@@ -1,9 +1,16 @@
 #Ok10git
 
-import os, sys, time
-from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
-from Crypto.Hash import SHA256
+# import os, sys, time
+# from Crypto.PublicKey import RSA
+# from Crypto.Signature import PKCS1_v1_5
+# from Crypto.Hash import SHA256
+import datetime, time
+from fastecdsa import curve, ecdsa, keys
+from fastecdsa.keys import export_key, import_key
+from fastecdsa.curve import P256
+from fastecdsa.point import Point
+import leveldb
+
 
 # Validations
 def isTSvalid(tx): #TODO not more than current time
@@ -212,16 +219,19 @@ def validateTX(tx):
     pass
 
 
-def v1(msg):
+def insertGenesis():
     GENESIS_MSG('1', 'TX', '9d25675fde074d1444439ef431848bd8b5314b268fd8edbe4e2a59d0700d6da2', ('1/1',
-                                                                                        '[36406343224692063900833029031111854117178867930743205589528043357636889016454 6504559082621797771456835002966813839522833454231390100388342046748949207233]',
-                                                                                        '[GENESIS]',
-                                                                                        '[26063413541153741795311009536578546636609555338262636333004632681873009397378 72849517704928537413839627784171110912318787674252857837896776821469476844155]',
-                                                                                        '19773ac41f111ea4ad5ef20ff1273aa0739f15661dafa3b4787961fd84bfb369',
-                                                                                        '1', 10000000000,
-                                                                                        '01-01-2018 00:00:00.000'))
+                                                                                                '[36406343224692063900833029031111854117178867930743205589528043357636889016454 6504559082621797771456835002966813839522833454231390100388342046748949207233]',
+                                                                                                '[GENESIS]',
+                                                                                                '[26063413541153741795311009536578546636609555338262636333004632681873009397378 72849517704928537413839627784171110912318787674252857837896776821469476844155]',
+                                                                                                '19773ac41f111ea4ad5ef20ff1273aa0739f15661dafa3b4787961fd84bfb369',
+                                                                                                '1', 10000000000,
+                                                                                                '01-01-2018 00:00:00.000'))
 
     GENESIS_HASH = 'e2459cf1ea4f8245ef1b6985e8a83c6e946347c7a07ed8708d52c3481787ed47'
+
+
+def v1(msg):
     #TODo replace by a GENESIS_HASH if len(DB_TXs == 0) -> on startNode
     # v1_genesis_fields
     # msg_fields_tx = (
