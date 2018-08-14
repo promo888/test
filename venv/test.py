@@ -86,15 +86,15 @@ print('valid imported ecdsa sig', valid, pbk == pbk1, pbk1, 'addr', to_sha256(pb
 merkle_date = '01-01-2018 00:00:00.000'
 #genesis_tx = {'from_addr': 'GENESIS', 'to_addr': to_sha256(pbk1), 'asset_type': '1', 'amount': 10000000000, 'input_tx': 'GENESIS', 'ts': merkle_date}
 msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'input_txs', 'pub_keys', 'to_addr', 'asset_type', 'amount', 'ts'] #order & fields are handled by ver_num
-#genesis_tx = ('1', '_TX', '1/1', '[%s %s]' % (r, s), ' [GENESIS]', 'GENESIS', to_sha256(pbk1), '1', 10000000000, merkle_date)
-genesis_tx = ['1', '_TX', '1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1.x)+str(pbk1.y)), '1', 10000000000, merkle_date] #from_addre sha256(pubkey)
+#genesis_tx = ('1', 'TX_', '1/1', '[%s %s]' % (r, s), ' [GENESIS]', 'GENESIS', to_sha256(pbk1), '1', 10000000000, merkle_date)
+genesis_tx = ['1', 'TX_', '1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1.x)+str(pbk1.y)), '1', 10000000000, merkle_date] #from_addre sha256(pubkey)
 print('GENESIS TX', genesis_tx)
 print('GENESIS hash', to_sha256(str(genesis_tx)), type(to_sha256(str(genesis_tx))))
 #print((genesis_tx.values())) not ordered
 msg_fields = ['%s' % t for t in msg_fields_tx]
 print('msg_fields', len(msg_fields), str(msg_fields) == str(msg_fields_tx), msg_fields)
 genesis_msg_tx = ('1/1', '[%s %s]' % (r, s), '[GENESIS]', '[%s %s]' % (pbk1.x, pbk.y), to_sha256(str(pbk1.x)+str(pbk1.y)), '1', 10000000000, merkle_date)
-genesis_msg =  ('1', 'TX', to_sha256(str(genesis_msg_tx)), genesis_msg_tx)
+genesis_msg =  ('1', 'TX_', to_sha256(str(genesis_msg_tx)), genesis_msg_tx)
 print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
 r, s = ecdsa.sign(str(genesis_msg[3]), prk)
 #########TODO msg_hash -> output_tx
