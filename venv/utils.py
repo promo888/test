@@ -11,8 +11,9 @@ from fastecdsa.keys import export_key, import_key
 from fastecdsa.curve import P256
 from fastecdsa.point import Point
 from Crypto.Hash import SHA256
+import msgpack #git clone msgpack && cd mspack && sudo python3 setup.py install /or Project Settings - Project -Project Interpreter - Available Packages - Install
 
-
+#ps fax | grep python3 | grep -v grep |awk '{print $1}' | xargs -r kill -9
 
 NODE_TYPE = "Node" or "Wallet"
 PORT_REP_SERVER = 7777   # Receiving data from the world TXs, quiries ...etc
@@ -69,6 +70,10 @@ def setNodeDb(pub_key):
     RUNTIME_CONFIG['CONTRACTS_DB'] = CONTRACTS_DB
     RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
     RUNTIME_CONFIG['PENDING_DB'] = PENDING_DB
+    dirs = [TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
+    for folder in dirs:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
 
 
 
@@ -78,8 +83,27 @@ def getNodeId():
 
 def insertDB(bin_key, bin_value, db_path):
     global DB
-    DB = leveldb.LevelDB(db_path)
-    DB.Put(bin_key, bin_value)
+    if DB is None:
+        DB = leveldb.LevelDB(db_path)
+        DB.Put(bin_key, bin_value)
+
+
+def getDB(bin_key, db_path):
+    global DB
+    try:
+        if DB is None:
+            DB = leveldb.LevelDB(db_path)
+        return DB.Get(bin_key)
+    except:
+        return None
+
+
+def deleteDB(bin_key, db_path):
+    global DB
+    if DB is None:
+        DB = leveldb.LevelDB(db_path)
+    else:
+        DB.Delete(bin_key)
 
 
 def isDBvalue(bin_key, db_path):
@@ -112,6 +136,10 @@ def utc():
 
 
 def insertGenesis(): #TODO onStartNode
+
+    print(getDB(b'GENESIS', TXS_DB))
+    print(getDB(b'GENESIS-', TXS_DB))
+    deleteDB(b'GENESIS', TXS_DB)
     if not isDBvalue(b'GENESIS', TXS_DB):
         #txs_db = leveldb.LevelDB(TXS_DB)
         #utxs_db  = leveldb.LevelDB(UTXS_DB)
@@ -127,7 +155,8 @@ def insertGenesis(): #TODO onStartNode
         genesis_msg = ('1', '_TX', genesis_msg_hash, genesis_tx)
         print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
         # msg_fields = ['%s' % t for t in msg_fields_tx]
-        insertDB(b'GENESIS', bytes(str(msg_fields_tx).replace('[', '').replace(']', ''), 'utf8'), 'utf8')
+        print("Insert GENESIS TX")
+        insertDB(b'GENESIS', msgpack.packb(genesis_msg), TXS_DB)
 
     #TO UTXO DB
 
