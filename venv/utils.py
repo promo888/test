@@ -28,13 +28,13 @@ MSG_TYPE_REQUEST = "REQ"
 REQUEST_TYPE_BLOCK = 'RBL'
 REQUEST_TYPE_TX = 'RTX' #used to retrieve ALL type of messages by specifying MSG_TYPE param in request
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-TXS_DB = './..%s/db/TXS' % ROOT_DIR
-UTXS_DB = './..%s/db/UTXS' % ROOT_DIR
-VOTES_DB = './..%s/db/VOTES' % ROOT_DIR
-BLOCKS_DB = './..%s/db/BLOCKS' % ROOT_DIR
-CONTRACTS_DB = './..%s/db/CONTRACTS' % ROOT_DIR
-SERVICE_DB = './..%s/db/SERVICE' % ROOT_DIR
-PENDING_DB = './..%s/db/PENDING' % ROOT_DIR
+TXS_DB = '%s/db/TXS' % ROOT_DIR
+UTXS_DB = '%s/db/UTXS' % ROOT_DIR
+VOTES_DB = '%s/db/VOTES' % ROOT_DIR
+BLOCKS_DB = '%s/db/BLOCKS' % ROOT_DIR
+CONTRACTS_DB = '%s/db/CONTRACTS' % ROOT_DIR
+SERVICE_DB = '%s/db/SERVICE' % ROOT_DIR
+PENDING_DB = '%s/db/PENDING' % ROOT_DIR
 DB = None
 RUNTIME_CONFIG = {'FileConfig': None, 'NodeType': NODE_TYPE, 'NodeId': None, 'PENDING_DB': PENDING_DB, 'TXS_DB': TXS_DB, 'UTXS_DB': UTXS_DB, 'VOTES_DB': VOTES_DB, 'BLOCKS_DB': BLOCKS_DB, 'CONTRACTS_DB': CONTRACTS_DB, 'SERVICE_DB': SERVICE_DB}
 
@@ -56,13 +56,13 @@ def setNodeDb(pub_key):
     global SERVICE_DB
     global PENDING_DB
     global RUNTIME_CONFIG
-    TXS_DB = './..%s/db/%s/TXS' % (ROOT_DIR, pub_key)
-    UTXS_DB = './..%s/db/%s/UTXS' % (ROOT_DIR, pub_key)
-    VOTES_DB = './..%s/db/%s/VOTES' % (ROOT_DIR, pub_key)
-    BLOCKS_DB = './..%s/db/%s/BLOCKS' % (ROOT_DIR, pub_key)
-    CONTRACTS_DB = './..%s/db/%s/CONTRACTS' % (ROOT_DIR, pub_key)
-    SERVICE_DB = './..%s/%s/SERVICE' % (ROOT_DIR, pub_key)
-    PENDING_DB = './..%s/%s/PENDING' % (ROOT_DIR, pub_key)
+    TXS_DB = '%s/db/%s/TXS' % (ROOT_DIR, pub_key)
+    UTXS_DB = '%s/db/%s/UTXS' % (ROOT_DIR, pub_key)
+    VOTES_DB = '%s/db/%s/VOTES' % (ROOT_DIR, pub_key)
+    BLOCKS_DB = '%s/db/%s/BLOCKS' % (ROOT_DIR, pub_key)
+    CONTRACTS_DB = '%s/db/%s/CONTRACTS' % (ROOT_DIR, pub_key)
+    SERVICE_DB = '%s/%s/SERVICE' % (ROOT_DIR, pub_key)
+    PENDING_DB = '%s/%s/PENDING' % (ROOT_DIR, pub_key)
     RUNTIME_CONFIG['TXS_DB'] = TXS_DB
     RUNTIME_CONFIG['UTXS_DB'] = UTXS_DB
     RUNTIME_CONFIG['VOTES_DB'] = VOTES_DB
@@ -83,9 +83,10 @@ def getNodeId():
 
 def insertDB(bin_key, bin_value, db_path):
     global DB
+    print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
     if DB is None:
         DB = leveldb.LevelDB(db_path)
-        DB.Put(bin_key, bin_value)
+    DB.Put(bin_key, bin_value)
 
 
 def getDB(bin_key, db_path):
@@ -102,8 +103,7 @@ def deleteDB(bin_key, db_path):
     global DB
     if DB is None:
         DB = leveldb.LevelDB(db_path)
-    else:
-        DB.Delete(bin_key)
+    DB.Delete(bin_key)
 
 
 def isDBvalue(bin_key, db_path):
@@ -137,9 +137,6 @@ def utc():
 
 def insertGenesis(): #TODO onStartNode
 
-    print(getDB(b'GENESIS', TXS_DB))
-    print(getDB(b'GENESIS-', TXS_DB))
-    deleteDB(b'GENESIS', TXS_DB)
     if not isDBvalue(b'GENESIS', TXS_DB):
         #txs_db = leveldb.LevelDB(TXS_DB)
         #utxs_db  = leveldb.LevelDB(UTXS_DB)
@@ -156,9 +153,19 @@ def insertGenesis(): #TODO onStartNode
         print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
         # msg_fields = ['%s' % t for t in msg_fields_tx]
         print("Insert GENESIS TX")
-        insertDB(b'GENESIS', msgpack.packb(genesis_msg), TXS_DB)
+        packed_msg = msgpack.packb(genesis_msg)
+        insertDB(b'GENESIS', packed_msg, TXS_DB)
+        print('Unpacked GenesisTX type', type(msgpack.unpackb(packed_msg)))
 
+    #tests
+    # print('GENESIS key in TXS_DB', getDB(b'GENESIS', TXS_DB))
+    print('GENESIS- key in TXS_DB', getDB(b'GENESIS-', TXS_DB))
+    # deleteDB(b'GENESIS', TXS_DB)
+    print('GENESIS key in TXS_DB', isDBvalue(b'GENESIS', TXS_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
+    print('GENESIS value in TXS_DB', msgpack.unpackb(getDB(b'GENESIS', TXS_DB)))
     #TO UTXO DB
+
+
 
 
 # config utils
