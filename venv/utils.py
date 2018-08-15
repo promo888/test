@@ -4,23 +4,31 @@ from datetime import *
 from time import *
 import configparser
 import psutil, subprocess, re
-import leveldb
 import datetime, time
 from fastecdsa import curve, ecdsa, keys
 from fastecdsa.keys import export_key, import_key
 from fastecdsa.curve import P256
 from fastecdsa.point import Point
 from Crypto.Hash import SHA256
-#import msgpack #git clone msgpack && cd mspack && sudo python3 setup.py install /or Project Settings - Project -Project Interpreter - Available Packages - Install
 from msgpack import packb, unpackb
+import pandas
+import leveldb
+import sqlite3
+from sqlobject import *
+#import v
+from v import *
 
+
+#pip install --proxy http://lab:Welcome1@10.72.0.50:8080 matplotlib
+#import msgpack #git clone msgpack && cd mspack && sudo python3 setup.py install /or Project Settings - Project -Project Interpreter - Available Packages - Install
 #ps fax | grep python3 | grep -v grep |awk '{print $1}' | xargs -r kill -9
 
 NODE_TYPE = "Node" or "Wallet"
 PORT_REP_SERVER = 7777   # Receiving data from the world TXs, quiries ...etc
 PORT_UDP_SERVER = 8888   # Receiving data from miners
-MSG_TYPE_TX = "TX-"
+MSG_TYPE_TX = "TX-" #SPENT TX
 MSG_TYPE_UNSPENT_TX = "TX_"
+MSG_TYPE_TX_VALIDATED_AND_PENDING = "_T_"
 MSG_TYPE_MULTI_SIG = "MNS"
 MSG_TYPE_VOTE = "VOT"
 MSG_TYPE_CONTRACT = "CNT"
@@ -31,6 +39,7 @@ REQUEST_TYPE_BLOCK = 'RBL'
 REQUEST_TYPE_TX = 'RTX' #used to retrieve ALL type of messages by specifying MSG_TYPE param in request
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 NODE_DB = '%s/db/DATA' % ROOT_DIR
+NODE_SERVICE_DB = '%s/service_db/DATA' % ROOT_DIR
 
 # TXS_DB = '%s/db/TXS' % ROOT_DIR
 # UTXS_DB = '%s/db/UTXS' % ROOT_DIR
@@ -40,8 +49,8 @@ NODE_DB = '%s/db/DATA' % ROOT_DIR
 # SERVICE_DB = '%s/db/SERVICE' % ROOT_DIR
 # PENDING_DB = '%s/db/PENDING' % ROOT_DIR
 DB = None
-#DB2 = None
-RUNTIME_CONFIG = {'FileConfig': None, 'NodeType': NODE_TYPE, 'NodeId': None, 'NODE_DB': NODE_DB } #, 'PENDING_DB': PENDING_DB, 'TXS_DB': TXS_DB, 'UTXS_DB': UTXS_DB, 'VOTES_DB': VOTES_DB, 'BLOCKS_DB': BLOCKS_DB, 'CONTRACTS_DB': CONTRACTS_DB, 'SERVICE_DB': SERVICE_DB}
+SERVICE_DB = None #TODO disable node activities if not sync (when downloading)
+RUNTIME_CONFIG = {'FileConfig': None, 'NodeType': NODE_TYPE, 'NodeId': None, 'NODE_DB': NODE_DB, 'SERVICE_DB': NODE_SERVICE_DB} #, 'PENDING_DB': PENDING_DB, 'TXS_DB': TXS_DB, 'UTXS_DB': UTXS_DB, 'VOTES_DB': VOTES_DB, 'BLOCKS_DB': BLOCKS_DB, 'CONTRACTS_DB': CONTRACTS_DB, 'SERVICE_DB': SERVICE_DB}
 
 
 
@@ -53,7 +62,7 @@ def setRuntimeConfig(key,value):
 
 
 def setNodeDb(pub_key):
-    global NODE_DB
+    #global NODE_DB
     # global TXS_DB
     # global UTXS_DB
     # global VOTES_DB
@@ -62,7 +71,7 @@ def setNodeDb(pub_key):
     # global SERVICE_DB
     # global PENDING_DB
     # global RUNTIME_CONFIG
-    NODE_DB = '%s/db/%s/DATA' % (ROOT_DIR, pub_key)
+    #NODE_DB = '%s/db/%s/DATA' % (ROOT_DIR, pub_key)
     # TXS_DB = '%s/db/%s/TXS' % (ROOT_DIR, pub_key)
     # UTXS_DB = '%s/db/%s/UTXS' % (ROOT_DIR, pub_key)
     # VOTES_DB = '%s/db/%s/VOTES' % (ROOT_DIR, pub_key)
@@ -70,32 +79,65 @@ def setNodeDb(pub_key):
     # CONTRACTS_DB = '%s/db/%s/CONTRACTS' % (ROOT_DIR, pub_key)
     # SERVICE_DB = '%s/db/%s/SERVICE' % (ROOT_DIR, pub_key)
     # PENDING_DB = '%s/db/%s/PENDING' % (ROOT_DIR, pub_key)
-    RUNTIME_CONFIG['NODE_DB'] = NODE_DB
+    #RUNTIME_CONFIG['NODE_DB'] = NODE_DB
     # RUNTIME_CONFIG['TXS_DB'] = TXS_DB
     # RUNTIME_CONFIG['UTXS_DB'] = UTXS_DB
     # RUNTIME_CONFIG['VOTES_DB'] = VOTES_DB
     # RUNTIME_CONFIG['BLOCKS_DB'] = BLOCKS_DB
     # RUNTIME_CONFIG['CONTRACTS_DB'] = CONTRACTS_DB
     # RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
-    # RUNTIME_CONFIG['PENDING_DB'] = PENDING_DB
-    dirs = [NODE_DB] #[NODE_DB, TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
+    #RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
+    RUNTIME_CONFIG['NODE_TYPE'] = getNodeId()
+    dirs = [NODE_DB, NODE_SERVICE_DB] #[NODE_DB, TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
     for folder in dirs:
         if not os.path.exists(folder):
             os.makedirs(folder)
-
+    initServiceDB()
 
 
 def getNodeId():
     return NODE_ID
 
 
+def initServiceDB():
+    global SERVICE_DB
+    try:
+        if SERVICE_DB is None:
+            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB)
+            #Create Tables
+
+
+        return True
+    except Exception as ex:
+        #TODO logger
+        print('Exception on init of SqlLite NODE_SERVICE_DB:  %s %s' % (utc(), ex))
+        return None
+
+
+def insertServiceDB(str_insert_query):
+    global SERVICE_DB
+    #print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
+    try:
+        if SERVICE_DB is None:
+            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB)
+        DB.Put(bin_key, bin_value)
+        return True
+    except Exception as ex:
+        #TODO logger
+        print('Exception on insert to SqlLite NODE_SERVICE_DB: %s %s' % (utc(), ex))
+        return None
+
+
 def insertDB(bin_key, bin_value, db_path):
     global DB
     #print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
-    if DB is None:
-        DB = leveldb.LevelDB(db_path)
-    DB.Put(bin_key, bin_value)
-
+    try:
+        if DB is None:
+            DB = leveldb.LevelDB(db_path)
+        DB.Put(bin_key, bin_value)
+    except Exception as ex:
+        #TODO logger
+        print('Exception on insert to LevelDB NODE_DB: %s %s' % (utc(), ex))
 
 def getDB(bin_key, db_path):
     global DB
@@ -126,9 +168,9 @@ def isDBvalue(bin_key, db_path, dbm='db'):
         value = dbm.Get(bin_key)
         #print('isDBvalue value', value, type(value))
         return True
-    except Exception as e:
+    except Exception as ex:
         #TODO logger
-        #print('Exception isDbValue: ', e)
+        #print('Exception isDbValue: ', ex)
         return False
 
 
@@ -146,6 +188,12 @@ def to_md5(to_str):
 def utc():
     return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
 
+def b(str):
+    try:
+        return bytes(str, 'utf8')
+    except:
+        return str
+
 
 def insertGenesis(): #TODO onStartNode
 
@@ -158,33 +206,68 @@ def insertGenesis(): #TODO onStartNode
         genesis_sig = {'r': 36406343224692063900833029031111854117178867930743205589528043357636889016454,
                        's': 6504559082621797771456835002966813839522833454231390100388342046748949207233}
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
-        genesis_tx_hash = 'c038453a9c9c089f65914b2bd2261a84aff7ed1d931cdd9bc950a32405472c22'
-        genesis_msg_hash = 'a370ab64d2c92c72722fe11c4ee4f60233b013750c9d82274256f9fe357bd9b3'
-        msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'input_txs', 'pub_keys', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
-        genesis_tx = ['1', MSG_TYPE_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[GENESIS]', '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
-        genesis_msg = ('1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx)
-        print('Genesis Msg Hash: ', to_sha256(str(genesis_msg))) #TODO validation
-        assert (genesis_msg_hash == to_sha256(str(genesis_msg)))
-        print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
+        genesis_tx_hash = '3bbc8b608031e0c9444c293f7ed1031d6683c10869387a83fd8f8a264edba232'
+        genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
+        msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
+        genesis_tx = ['1', MSG_TYPE_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), '[GENESIS]', genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
+        genesis_msg = ['1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx] #ver_num, msg_type, tx_hash
+        tx_hash = to_sha256(str(genesis_tx))
+        print('Genesis TX Hash: ', tx_hash)  # TODO validation
+        assert (tx_hash == genesis_tx_hash)
+        print('Genesis Msg Hash - Output TX: ', to_sha256(str(genesis_msg))) #TODO validation
+        verifyTx(genesis_tx)
+        unspent_tx = msg_hash = to_sha256(str(genesis_tx))
+        #unspent_tx = msg_hash = to_sha256(str(genesis_msg))
+        #assert (genesis_msg_hash == msg_hash)
+        #print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
+
         # msg_fields = ['%s' % t for t in msg_fields_tx]
         print("Insert GENESIS TX")
-        genesis_packed_msg = packb(genesis_msg)
+        genesis_packed_msg = packb(genesis_tx)
+        #ONLY TX is written to DB, while HASH is validated/calculated #todo
+        insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
         #unspent_tx_fields [prefix_type - (TX, Contract, Vote, Service, ...etc), key(txid: sha256(msg)),value([asset_type, amount])
-        print('msg_hash, asset_type, amount - ', genesis_msg[2], genesis_tx[-3], genesis_tx[-2])
-        genesis_unspent_msg = [genesis_msg[2], [genesis_tx[-3], genesis_tx[-2]]]
-        insertDB(b'TX_GENESIS', genesis_packed_msg, NODE_DB)
-        insertDB(packb(MSG_TYPE_UNSPENT_TX + genesis_tx[0]), packb(genesis_tx[1]), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
+        print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
+        genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
+        insertDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), packb(genesis_unspent_tx), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
         print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
-        #insertDB(b'TX_GENESIS', genesis_packed_msg, NODE_DB, DB2)
+        #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST, MINER_ADDR]] #ToDo Longest BlockList + validate voting
+        # Save/upDATE Last BlockNUMBER AND hASH on writeNewBlock and onNodeStart
+        #service [BlockNumber, MINER_VOTES_LIST, PENALTIED_MINERS_LIST]
+        #miner_rewards tx [BlockNumber, REWARDS_TX[asset_type, asset_amount, MINER_ADDR]]
+        #SELF_votes_tx [BlockNumber, Voted=True|False] #validate on block write + if BlockNumber not found -> voted=False
 
     #tests
-    # print('GENESIS key in TXS_DB', getDB(b'TX_GENESIS', DB))
-    print('GENESIS- key in TXS_DB', getDB(b'TX_GENESIS-', NODE_DB))
-    # deleteDB(b'GENESIS', TXS_DB)
-    print('GENESIS key in TXS_DB', isDBvalue(b'TX_GENESIS', NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
-    print('GENESIS value in TXS_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)))
-    #TO UTXO DB
+    print('GENESIS- key in NODE_DB', getDB(b'NOT_EXIST_KEY', NODE_DB), 'NOT_EXIST_KEY')
+    print('TX_GENESIS key in NODE_DB', getDB(b'TX_GENESIS', NODE_DB), 'TX_GENESIS')
+    # deleteDB(b'GENESIS', NODE_DB)
+    print('GENESIS key in NODE_DB', isDBvalue(b'TX-GENESIS', NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
+    print('GENESIS TX value in NODE_DB', unpackb(getDB(b'TX-GENESIS', NODE_DB)) if isDBvalue(b'TX-GENESIS', NODE_DB) else 'NOT_FOUND')
+    print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
+    print(os.listdir(ROOT_DIR+'/v'))
+    print('Amount of v files', len([f for f in os.listdir(ROOT_DIR+'/v') if '_' not in f and os.path.isfile(ROOT_DIR+'/v/'+f)])) #Validation for v numbers + validate valid enumeration in v folder
 
+
+def v(module, func, params=None): #VerNum methods
+    try:
+        if params != None:
+            return module.func(params)
+        else:
+            return module.func()
+    except Exception as ex:
+        #ToDo logger
+        print('Exception: %s , call func %s.%s(%s) failed' %(ex, module, func, params))
+        return None
+
+def validateMsg(msg):
+    return v('v'+ msg[0], 'test')
+
+
+
+def verifyTx(tx_msg):
+    #v1.test()
+    validateMsg(tx_msg)
+    pass
 
 
 
@@ -335,3 +418,10 @@ def getNode(count, nodes={}):
 # crypto utils
 # validation utils
 # verification utils
+
+
+
+#QQQ
+# IncomingMsg - NoComputeSpeed -> Task Q -> Persist to  Pending [DBQ]-> Validate/Invalidate -> write to Pending DB ->SqlLite or Mongo
+# ##########OnIncomingBlock -> write to TXS, Votes ... delete from temp DB
+# BlockTime = MinerAddr + TShash
