@@ -190,3 +190,4 @@ while time.time() - start <= 1:
     getServiceDB(sql)
     count+=1
 print('%s GET quiries performed on SqlLite within 1 sec' % count)
+
