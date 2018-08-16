@@ -183,11 +183,11 @@ print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'),
 # print('%s GET quiries performed on LevelDb within 1 sec' % count
 
 
-start = time.time()
-count = 0
-while time.time() - start <= 1:
-    sql = 'select * from pending'
-    getServiceDB(sql)
-    count+=1
-print('%s GET quiries performed on SqlLite within 1 sec' % count)
+# start = time.time()
+# count = 0
+# while time.time() - start <= 1:
+#     sql = 'select * from pending'
+#     getServiceDB(sql)
+#     count+=1
+# print('%s GET quiries performed on SqlLite within 1 sec' % count)
 

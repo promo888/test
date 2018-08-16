@@ -104,24 +104,17 @@ def getNodeId():
 
 def initServiceDB():
     global SERVICE_DB
+    sql = '''create table if not exists pending 
+                       (id INT PRIMARY KEY,
+                        ver_num TEXT NOT NULL,
+                        msg_type TEXT NOT NULL,
+                        msg_hash TEXT NOT NULL,                        
+                        msg BLOB NOT NULL,
+                        created_at date NOT NULL   
+                       );
+     '''
     try:
-        #if SERVICE_DB is None:
-        #    SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB+'/service.db', isolation_level=None)
-            #Create Tables
-        sql = '''create table if not exists pending 
-                    (id INT PRIMARY KEY,
-                     ver_num TEXT NOT NULL,
-                     msg_type TEXT NOT NULL,
-                     msg_hash TEXT NOT NULL,
-                     created_at date NOT NULL,
-                     msg_bin BLOB NOT NULL   
-                    );
-            '''
-        #SERVICE_DB.execute(sql)
-        #SERVICE_DB.commit()
-        #return True
-        insertServiceDB(sql)
-        return True
+        return insertServiceDB(sql)
     except Exception as ex:
         #TODO logger
         print('Exception on init of SqlLite NODE_SERVICE_DB:  %s %s' % (utc(), ex))
@@ -140,6 +133,17 @@ def insertServiceDB(str_insert_query):
         #TODO logger
         print('Exception on insert to SqlLite NODE_SERVICE_DB: %s %s' % (utc(), ex))
         return None
+
+
+def insertServiceDbPending(batch):
+    pass
+
+
+def deleteServiceDbBath(batch):
+    pass
+
+def deleteServiceDbPending(sql):
+    pass
 
 
 def getServiceDB(sql):
@@ -215,8 +219,7 @@ def to_md5(to_str):
 def utc():
     return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
 
-def utc2():
-    return datetime.datetime.utcfromtimestamp(time.time()) #sqllite date -> datetime.datetime
+
 
 def b(str):
     try:
@@ -236,7 +239,72 @@ def v(module, func, params=None): #VerNum methods
         return None
 
 
+def vv(ver_num):
+    return 'v%s' % ver_num
+
+
 def insertGenesis(): #TODO onStartNode
+
+    if not isDBvalue(b'TX_GENESIS', NODE_DB):
+        #txs_db = leveldb.LevelDB(TXS_DB)
+        #utxs_db  = leveldb.LevelDB(UTXS_DB)
+        merkle_date = '01-01-2018 00:00:00.000'
+        genesis_pub_key = {'x': 26063413541153741795311009536578546636609555338262636333004632681873009397378,
+                           'y': 72849517704928537413839627784171110912318787674252857837896776821469476844155}
+        genesis_sig = {'r': 36406343224692063900833029031111854117178867930743205589528043357636889016454,
+                       's': 6504559082621797771456835002966813839522833454231390100388342046748949207233}
+        genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
+        genesis_tx_hash = '3bbc8b608031e0c9444c293f7ed1031d6683c10869387a83fd8f8a264edba232'
+        genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
+        msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
+
+        genesis_tx = ['1', MSG_TYPE_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), '[GENESIS]', genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
+        genesis_msg = ['1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx] #ver_num, msg_type, tx_hash
+        tx_hash = to_sha256(str(genesis_tx))
+        print('Genesis TX Hash: ', tx_hash)  # TODO validation
+        assert (tx_hash == genesis_tx_hash)
+        print('Genesis Msg Hash - Output TX: ', to_sha256(str(genesis_msg))) #TODO validation
+        verifyTx(genesis_tx)
+        unspent_tx = msg_hash = to_sha256(str(genesis_tx))
+        #unspent_tx = msg_hash = to_sha256(str(genesis_msg))
+        #assert (genesis_msg_hash == msg_hash)
+        #print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
+
+        # msg_fields = ['%s' % t for t in msg_fields_tx]
+        print("Insert GENESIS TX")
+        genesis_packed_msg = packb(genesis_tx)
+        #ONLY TX is written to DB, while HASH is validated/calculated #todo
+        insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
+        #unspent_tx_fields [prefix_type - (TX, Contract, Vote, Service, ...etc), key(txid: sha256(msg)),value([asset_type, amount])
+        print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
+        genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
+        insertDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), packb(genesis_unspent_tx), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
+        print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
+        #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST, MINER_ADDR]] #ToDo Longest BlockList + validate voting
+        # Save/upDATE Last BlockNUMBER AND hASH on writeNewBlock and onNodeStart
+        #service [BlockNumber, MINER_VOTES_LIST, PENALTIED_MINERS_LIST]
+        #miner_rewards tx [BlockNumber, REWARDS_TX[asset_type, asset_amount, MINER_ADDR]]
+        #SELF_votes_tx [BlockNumber, Voted=True|False] #validate on block write + if BlockNumber not found -> voted=False
+
+    #tests
+    print('GENESIS- key in NODE_DB', getDB(b'NOT_EXIST_KEY', NODE_DB), 'NOT_EXIST_KEY')
+    print('TX_GENESIS key in NODE_DB', getDB(b'TX_GENESIS', NODE_DB), 'TX_GENESIS')
+    # deleteDB(b'GENESIS', NODE_DB)
+    print('GENESIS key in NODE_DB', isDBvalue(b'TX-GENESIS', NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
+    print('GENESIS TX value in NODE_DB', unpackb(getDB(b'TX-GENESIS', NODE_DB)) if isDBvalue(b'TX-GENESIS', NODE_DB) else 'NOT_FOUND')
+    print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
+    print(os.listdir(ROOT_DIR+'/v'))
+    print('Amount of v files', len([f for f in os.listdir(ROOT_DIR+'/v') if '_' not in f and os.path.isfile(ROOT_DIR+'/v/'+f)])) #Validation for v numbers + validate valid enumeration in v folder
+    v1.test('CALL')
+    v('v1', 'test', 'DYNAMIC')
+    print('v1 TX msg fields:', v(vv('1'), 'txf'))
+    #func = getattr(globals()['v1'], 'test')
+    #globals()['v1'].test('DYNAMIC-')
+    #func('DYNAMIC+')
+
+
+
+def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/c of high traffic unable to calc/validate before persist ?
 
     if not isDBvalue(b'TX_GENESIS', NODE_DB):
         #txs_db = leveldb.LevelDB(TXS_DB)
@@ -278,20 +346,8 @@ def insertGenesis(): #TODO onStartNode
         #miner_rewards tx [BlockNumber, REWARDS_TX[asset_type, asset_amount, MINER_ADDR]]
         #SELF_votes_tx [BlockNumber, Voted=True|False] #validate on block write + if BlockNumber not found -> voted=False
 
-    #tests
-    print('GENESIS- key in NODE_DB', getDB(b'NOT_EXIST_KEY', NODE_DB), 'NOT_EXIST_KEY')
-    print('TX_GENESIS key in NODE_DB', getDB(b'TX_GENESIS', NODE_DB), 'TX_GENESIS')
-    # deleteDB(b'GENESIS', NODE_DB)
-    print('GENESIS key in NODE_DB', isDBvalue(b'TX-GENESIS', NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
-    print('GENESIS TX value in NODE_DB', unpackb(getDB(b'TX-GENESIS', NODE_DB)) if isDBvalue(b'TX-GENESIS', NODE_DB) else 'NOT_FOUND')
-    print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
-    print(os.listdir(ROOT_DIR+'/v'))
-    print('Amount of v files', len([f for f in os.listdir(ROOT_DIR+'/v') if '_' not in f and os.path.isfile(ROOT_DIR+'/v/'+f)])) #Validation for v numbers + validate valid enumeration in v folder
-    v1.test('CALL')
-    v('v1', 'test', 'DYNAMIC')
-    #func = getattr(globals()['v1'], 'test')
-    #globals()['v1'].test('DYNAMIC-')
-    #func('DYNAMIC+')
+
+
 
 def validateMsg(msg):
     return v('v'+ msg[0], 'test', 'DYNAMIC')
