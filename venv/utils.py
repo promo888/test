@@ -39,7 +39,7 @@ REQUEST_TYPE_BLOCK = 'RBL'
 REQUEST_TYPE_TX = 'RTX' #used to retrieve ALL type of messages by specifying MSG_TYPE param in request
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 NODE_DB = '%s/db/DATA' % ROOT_DIR
-NODE_SERVICE_DB = '%s/service_db/DATA' % ROOT_DIR
+NODE_SERVICE_DB = '%s/service_db/DATA/service.db' % ROOT_DIR
 
 # TXS_DB = '%s/db/TXS' % ROOT_DIR
 # UTXS_DB = '%s/db/UTXS' % ROOT_DIR
@@ -87,10 +87,13 @@ def setNodeDb(pub_key):
     # RUNTIME_CONFIG['CONTRACTS_DB'] = CONTRACTS_DB
     # RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
     #RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
+
     RUNTIME_CONFIG['NODE_TYPE'] = getNodeId()
     dirs = [NODE_DB, NODE_SERVICE_DB] #[NODE_DB, TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
     for folder in dirs:
         if not os.path.exists(folder):
+            if folder == NODE_SERVICE_DB:
+                folder = folder.replace('/service.db', '')
             os.makedirs(folder)
     initServiceDB()
 
@@ -102,11 +105,22 @@ def getNodeId():
 def initServiceDB():
     global SERVICE_DB
     try:
-        if SERVICE_DB is None:
-            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB)
+        #if SERVICE_DB is None:
+        #    SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB+'/service.db', isolation_level=None)
             #Create Tables
-
-
+        sql = '''create table if not exists pending 
+                    (id INT PRIMARY KEY,
+                     ver_num TEXT NOT NULL,
+                     msg_type TEXT NOT NULL,
+                     msg_hash TEXT NOT NULL,
+                     created_at date NOT NULL,
+                     msg_bin BLOB NOT NULL   
+                    );
+            '''
+        #SERVICE_DB.execute(sql)
+        #SERVICE_DB.commit()
+        #return True
+        insertServiceDB(sql)
         return True
     except Exception as ex:
         #TODO logger
@@ -115,16 +129,29 @@ def initServiceDB():
 
 
 def insertServiceDB(str_insert_query):
-    global SERVICE_DB
-    #print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
+    global SERVICE_DB, NODE_SERVICE_DB
     try:
         if SERVICE_DB is None:
-            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB)
-        DB.Put(bin_key, bin_value)
+            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
+        SERVICE_DB.execute(str_insert_query)
+        SERVICE_DB.commit()
         return True
     except Exception as ex:
         #TODO logger
         print('Exception on insert to SqlLite NODE_SERVICE_DB: %s %s' % (utc(), ex))
+        return None
+
+
+def getServiceDB(sql):
+    global SERVICE_DB
+
+    try:
+        if SERVICE_DB is None:
+            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
+        return SERVICE_DB.execute(sql)
+    except Exception as ex:
+        #TODO logger
+        print('Exception on get from SqlLite NODE_SERVICE_DB: %s %s' % (utc(), ex))
         return None
 
 
@@ -188,11 +215,25 @@ def to_md5(to_str):
 def utc():
     return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
 
+def utc2():
+    return datetime.datetime.utcfromtimestamp(time.time()) #sqllite date -> datetime.datetime
+
 def b(str):
     try:
         return bytes(str, 'utf8')
     except:
         return str
+
+def v(module, func, params=None): #VerNum methods
+    try:
+        if params != None:
+            return getattr(globals()[module], func)(params)
+        else:
+            return getattr(globals()[module], func)()
+    except Exception as ex:
+        #ToDo logger
+        print('Exception: %s , call func %s.%s(%s) failed' %(ex, module, func, params))
+        return None
 
 
 def insertGenesis(): #TODO onStartNode
@@ -246,21 +287,14 @@ def insertGenesis(): #TODO onStartNode
     print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
     print(os.listdir(ROOT_DIR+'/v'))
     print('Amount of v files', len([f for f in os.listdir(ROOT_DIR+'/v') if '_' not in f and os.path.isfile(ROOT_DIR+'/v/'+f)])) #Validation for v numbers + validate valid enumeration in v folder
-
-
-def v(module, func, params=None): #VerNum methods
-    try:
-        if params != None:
-            return module.func(params)
-        else:
-            return module.func()
-    except Exception as ex:
-        #ToDo logger
-        print('Exception: %s , call func %s.%s(%s) failed' %(ex, module, func, params))
-        return None
+    v1.test('CALL')
+    v('v1', 'test', 'DYNAMIC')
+    #func = getattr(globals()['v1'], 'test')
+    #globals()['v1'].test('DYNAMIC-')
+    #func('DYNAMIC+')
 
 def validateMsg(msg):
-    return v('v'+ msg[0], 'test')
+    return v('v'+ msg[0], 'test', 'DYNAMIC')
 
 
 

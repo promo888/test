@@ -168,3 +168,25 @@ print('GENESIS TX exist: ', isDBvalue(b'TX-GENESIS', NODE_DB), 'TX-GENESIS')
 print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB), b(MSG_TYPE_UNSPENT_TX + 'GENESIS'))
 #run_version(v1.test)
 #run_version(v1.test, 'Some Value')
+
+#import timeit
+#print(max(timeit.timeit("isDBvalue(b'TX-GENESIS', NODE_DB);", setup='import utils;')).repeat(3, 1000))
+# start = time.time()
+# count = 0
+# while time.time() - start <= 1:
+#     if count % 2 == 0:
+#         key = b'NOT_EXIST'
+#     else:
+#         key = b'TX-GENESIS'
+#     isDBvalue(key, NODE_DB)
+#     count+=1
+# print('%s GET quiries performed on LevelDb within 1 sec' % count
+
+
+start = time.time()
+count = 0
+while time.time() - start <= 1:
+    sql = 'select * from pending'
+    getServiceDB(sql)
+    count+=1
+print('%s GET quiries performed on SqlLite within 1 sec' % count)
