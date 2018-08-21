@@ -150,13 +150,13 @@ def init_servers2():
             pool.append(p)
 
 
-#from utils import * #setNodeId, getNodeId
 def start_node(pub_key):
     if not pub_key is None:
-        setNodeId(pub_key)
+        setNode(pub_key)
         start = time.time()
         init_servers()
         insertGenesis()
+        getLogger().info('%s Node %s started' % (utc(), pub_key))
         print('Started at %s' % time.ctime(start))
         print(RUNTIME_CONFIG)
 
@@ -164,8 +164,14 @@ def start_node(pub_key):
 
 #TODO if main startNode(pbk) #19773ac41f111ea4ad5ef20ff1273aa0739f15661dafa3b4787961fd84bfb369
 start_node('71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16') #test2
+
 print('GENESIS TX exist: ', isDBvalue(b'TX-GENESIS', NODE_DB), 'TX-GENESIS')
 print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB), b(MSG_TYPE_UNSPENT_TX + 'GENESIS'))
+pmsg = getDB(b'TX-GENESIS', NODE_DB)
+v1.validateMsg(pmsg)
+print('ServiceDB pending table', getServiceDB("select count(*) from pending"), getServiceDB("select * from pending"))
+
+
 #run_version(v1.test)
 #run_version(v1.test, 'Some Value')
 

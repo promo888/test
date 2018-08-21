@@ -2,6 +2,8 @@ import os, sys
 import calendar
 from datetime import *
 from time import *
+import logging
+from logging.handlers import RotatingFileHandler
 import configparser
 import psutil, subprocess, re
 import datetime, time
@@ -23,12 +25,14 @@ from v import *
 #import msgpack #git clone msgpack && cd mspack && sudo python3 setup.py install /or Project Settings - Project -Project Interpreter - Available Packages - Install
 #ps fax | grep python3 | grep -v grep |awk '{print $1}' | xargs -r kill -9
 
+DEBUG = True
 NODE_TYPE = "Node" or "Wallet"
 PORT_REP_SERVER = 7777   # Receiving data from the world TXs, quiries ...etc
 PORT_UDP_SERVER = 8888   # Receiving data from miners
+MSG_TYPE_TX_ACCEPTED_AND_VALID = "TXQ"
+MSG_TYPE_TX_VERIFIED_AND_PENDING = "TXP"
 MSG_TYPE_TX = "TX-" #SPENT TX
 MSG_TYPE_UNSPENT_TX = "TX_"
-MSG_TYPE_TX_VALIDATED_AND_PENDING = "_T_"
 MSG_TYPE_MULTI_SIG = "MNS"
 MSG_TYPE_VOTE = "VOT"
 MSG_TYPE_CONTRACT = "CNT"
@@ -62,34 +66,8 @@ def setRuntimeConfig(key,value):
 
 
 def setNodeDb(pub_key):
-    #global NODE_DB
-    # global TXS_DB
-    # global UTXS_DB
-    # global VOTES_DB
-    # global BLOCKS_DB
-    # global CONTRACTS_DB
-    # global SERVICE_DB
-    # global PENDING_DB
-    # global RUNTIME_CONFIG
-    #NODE_DB = '%s/db/%s/DATA' % (ROOT_DIR, pub_key)
-    # TXS_DB = '%s/db/%s/TXS' % (ROOT_DIR, pub_key)
-    # UTXS_DB = '%s/db/%s/UTXS' % (ROOT_DIR, pub_key)
-    # VOTES_DB = '%s/db/%s/VOTES' % (ROOT_DIR, pub_key)
-    # BLOCKS_DB = '%s/db/%s/BLOCKS' % (ROOT_DIR, pub_key)
-    # CONTRACTS_DB = '%s/db/%s/CONTRACTS' % (ROOT_DIR, pub_key)
-    # SERVICE_DB = '%s/db/%s/SERVICE' % (ROOT_DIR, pub_key)
-    # PENDING_DB = '%s/db/%s/PENDING' % (ROOT_DIR, pub_key)
-    #RUNTIME_CONFIG['NODE_DB'] = NODE_DB
-    # RUNTIME_CONFIG['TXS_DB'] = TXS_DB
-    # RUNTIME_CONFIG['UTXS_DB'] = UTXS_DB
-    # RUNTIME_CONFIG['VOTES_DB'] = VOTES_DB
-    # RUNTIME_CONFIG['BLOCKS_DB'] = BLOCKS_DB
-    # RUNTIME_CONFIG['CONTRACTS_DB'] = CONTRACTS_DB
-    # RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
-    #RUNTIME_CONFIG['SERVICE_DB'] = SERVICE_DB
-
     RUNTIME_CONFIG['NODE_TYPE'] = getNodeId()
-    dirs = [NODE_DB, NODE_SERVICE_DB] #[NODE_DB, TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
+    dirs = [NODE_DB, NODE_SERVICE_DB, 'logs'] #[NODE_DB, TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
     for folder in dirs:
         if not os.path.exists(folder):
             if folder == NODE_SERVICE_DB:
@@ -104,7 +82,8 @@ def getNodeId():
 
 def initServiceDB():
     global SERVICE_DB
-    sql = '''create table if not exists pending 
+    sql_list = []
+    sql1 = '''CREATE TABLE if not exists pending 
                        (id INT PRIMARY KEY,
                         ver_num TEXT NOT NULL,
                         msg_type TEXT NOT NULL,
@@ -113,49 +92,48 @@ def initServiceDB():
                         created_at date NOT NULL   
                        );
      '''
+    sql_list.append(sql1)
     try:
-        return insertServiceDB(sql)
+        insertServiceDB(sql_list)
+        logp('ServiceDB Init successfull', 'info')
+        return SERVICE_DB
     except Exception as ex:
-        #TODO logger
-        print('Exception on init of SqlLite NODE_SERVICE_DB:  %s %s' % (utc(), ex))
+        # err_msg = '%s Exception on init of SqlLite NODE_SERVICE_DB:  %s' % (utc(), ex)
+        # LOGGER.error(err_msg)
+        #print(err_msg)
+        err_msg = 'Exception on Init (%s) of SqlLite NODE_SERVICE_DB: %s, %s' % (sql_list, ex, exc_info())
+        logp(err_msg, 'error')
         return None
 
 
-def insertServiceDB(str_insert_query):
+def insertServiceDB(sql_list):
     global SERVICE_DB, NODE_SERVICE_DB
     try:
         if SERVICE_DB is None:
             SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
-        SERVICE_DB.execute(str_insert_query)
+            logp("Insert Connected to ServiceDB", 'info')
+        for query in sql_list:
+            SERVICE_DB.execute(query)
         SERVICE_DB.commit()
         return True
     except Exception as ex:
-        #TODO logger
-        print('Exception on insert to SqlLite NODE_SERVICE_DB: %s %s' % (utc(), ex))
+        err_msg = 'Exception on Insert (%s) to SqlLite NODE_SERVICE_DB:  %s, %s' % (sql_list, ex, exc_info())
+        # LOGGER.error(err_msg)
+        # print(err_msg)
+        SERVICE_DB.rollback()
+        logp(err_msg, 'error')
         return None
-
-
-def insertServiceDbPending(batch):
-    pass
-
-
-def deleteServiceDbBath(batch):
-    pass
-
-def deleteServiceDbPending(sql):
-    pass
 
 
 def getServiceDB(sql):
     global SERVICE_DB
-
     try:
         if SERVICE_DB is None:
             SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
-        return SERVICE_DB.execute(sql)
+        return SERVICE_DB.execute(sql).fetchall()
     except Exception as ex:
-        #TODO logger
-        print('Exception on get from SqlLite NODE_SERVICE_DB: %s %s' % (utc(), ex))
+        err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, ex, exc_info())
+        logp(err_msg, 'error')
         return None
 
 
@@ -167,8 +145,9 @@ def insertDB(bin_key, bin_value, db_path):
             DB = leveldb.LevelDB(db_path)
         DB.Put(bin_key, bin_value)
     except Exception as ex:
-        #TODO logger
-        print('Exception on insert to LevelDB NODE_DB: %s %s' % (utc(), ex))
+        err_msg = 'Exception on insert (key %s) to LevelDB NODE_DB: %s %s %s' % (bin_key, ex, exc_info())
+        logp(err_msg, 'error')
+
 
 def getDB(bin_key, db_path):
     global DB
@@ -227,20 +206,37 @@ def b(str):
     except:
         return str
 
-def v(module, func, params=None): #VerNum methods
+def exc_info():
+    exc_type, exc_value, exc_tb = sys.exc_info()
+    return '%s %s' %(os.path.basename(exc_tb.tb_frame.f_code.co_filename), exc_tb.tb_lineno)
+
+
+def v(module, func, *params): #VerNum methods
     try:
-        if params != None:
-            return getattr(globals()[module], func)(params)
+        if params != None and len(params) == 0:
+            return getattr(globals()[module], func)(params[0])
+        elif params != None and len(params) > 0:
+            #print('params', *params)
+            return getattr(globals()[module], func)(*params)
         else:
             return getattr(globals()[module], func)()
     except Exception as ex:
-        #ToDo logger
-        print('Exception: %s , call func %s.%s(%s) failed' %(ex, module, func, params))
+        err_msg = '%s Exception: %s , call func %s.%s(%s) failed , %s' %(utc(), ex, module, func, params, exc_info())
+        getLogger().error(err_msg)
+        print(err_msg)
         return None
 
 
 def vv(ver_num):
     return 'v%s' % ver_num
+
+
+def vvv(msg, version_number, msg_type, field):
+    field_index = v('v' + version_number, 'msgi', msg_type, field)
+    if field_index is None:
+        return None
+    else:
+        return msg[-1][field_index] or None
 
 
 def insertGenesis(): #TODO onStartNode
@@ -254,12 +250,13 @@ def insertGenesis(): #TODO onStartNode
         genesis_sig = {'r': 36406343224692063900833029031111854117178867930743205589528043357636889016454,
                        's': 6504559082621797771456835002966813839522833454231390100388342046748949207233}
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
-        genesis_tx_hash = '3bbc8b608031e0c9444c293f7ed1031d6683c10869387a83fd8f8a264edba232'
+        genesis_tx_hash = '1848ac7cee06ced2f7b1d73d5dacd38b02d9cf230489e32d0a08ac355d339b56'
         genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
-        msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
 
-        genesis_tx = ['1', MSG_TYPE_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), '[GENESIS]', genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
-        genesis_msg = ['1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx] #ver_num, msg_type, tx_hash
+        #msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'msg_type', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
+
+        genesis_tx = ('1', MSG_TYPE_TX, '1/1', ['%s %s' % (genesis_sig['r'], genesis_sig['s'])], ['%s %s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['GENESIS'], genesis_to_addr, '1', 10000000000, merkle_date)  # from_address=sha256(pub_key)
+        genesis_msg = ('1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx) #ver_num, msg_type, tx_hash
         tx_hash = to_sha256(str(genesis_tx))
         print('Genesis TX Hash: ', tx_hash)  # TODO validation
         assert (tx_hash == genesis_tx_hash)
@@ -280,14 +277,21 @@ def insertGenesis(): #TODO onStartNode
         genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
         insertDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), packb(genesis_unspent_tx), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
         print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
-        #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST, MINER_ADDR]] #ToDo Longest BlockList + validate voting
-        # Save/upDATE Last BlockNUMBER AND hASH on writeNewBlock and onNodeStart
+        #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST - (outputs_list), MINER_ADDR]] #ToDo Longest BlockList + validate voting
+        #block hash = sha256(block_input_txs[])
+        #block_hash = to_sha256(str(msg[input_txs]))
+        #block_msg = [1, msg['ts'], block_hash, b'GENESIS',b('[+tx_hash+]'), msg['to_addr']]
+
+        ##print('txi', v(vv('1'), 'txi', 'ts'))
+        print('msgv', vvv(genesis_msg, genesis_msg[0], MSG_TYPE_TX, 'ts'))
+
+        #print('block_msg', block_msg)        # Save/upDATE Last BlockNUMBER AND hASH on writeNewBlock and onNodeStart
         #service [BlockNumber, MINER_VOTES_LIST, PENALTIED_MINERS_LIST]
         #miner_rewards tx [BlockNumber, REWARDS_TX[asset_type, asset_amount, MINER_ADDR]]
         #SELF_votes_tx [BlockNumber, Voted=True|False] #validate on block write + if BlockNumber not found -> voted=False
 
     #tests
-    print('GENESIS- key in NODE_DB', getDB(b'NOT_EXIST_KEY', NODE_DB), 'NOT_EXIST_KEY')
+    print('GENESIS- key in NODE_DB', getDB(b'KEY_NOT_EXIST', NODE_DB), 'KEY_NOT_EXIST')
     print('TX_GENESIS key in NODE_DB', getDB(b'TX_GENESIS', NODE_DB), 'TX_GENESIS')
     # deleteDB(b'GENESIS', NODE_DB)
     print('GENESIS key in NODE_DB', isDBvalue(b'TX-GENESIS', NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
@@ -295,9 +299,9 @@ def insertGenesis(): #TODO onStartNode
     print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
     print(os.listdir(ROOT_DIR+'/v'))
     print('Amount of v files', len([f for f in os.listdir(ROOT_DIR+'/v') if '_' not in f and os.path.isfile(ROOT_DIR+'/v/'+f)])) #Validation for v numbers + validate valid enumeration in v folder
-    v1.test('CALL')
-    v('v1', 'test', 'DYNAMIC')
-    print('v1 TX msg fields:', v(vv('1'), 'txf'))
+    #v1.test('CALL')
+    #v('v1', 'test', 'DYNAMIC')
+    #print('v1 TX msg fields:', v(vv('1'), 'txf'))
     #func = getattr(globals()['v1'], 'test')
     #globals()['v1'].test('DYNAMIC-')
     #func('DYNAMIC+')
@@ -325,7 +329,7 @@ def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/
         assert (tx_hash == genesis_tx_hash)
         print('Genesis Msg Hash - Output TX: ', to_sha256(str(genesis_msg))) #TODO validation
         verifyTx(genesis_tx)
-        unspent_tx = msg_hash = to_sha256(str(genesis_tx))
+        unspent_tx = tx_hash #msg_hash = to_sha256(str(genesis_tx))
         #unspent_tx = msg_hash = to_sha256(str(genesis_msg))
         #assert (genesis_msg_hash == msg_hash)
         #print('GENESIS MSG', genesis_msg, '\nGENESIS MSG_TX', str(genesis_msg[3]))
@@ -336,11 +340,15 @@ def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/
         #ONLY TX is written to DB, while HASH is validated/calculated #todo
         insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
         #unspent_tx_fields [prefix_type - (TX, Contract, Vote, Service, ...etc), key(txid: sha256(msg)),value([asset_type, amount])
-        print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
+        print('[TX_MSG_HASH = UNSPENT_TX_ID], input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
         genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
         insertDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), packb(genesis_unspent_tx), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
         print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
-        #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST, MINER_ADDR]] #ToDo Longest BlockList + validate voting
+        #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST - (outputs_list), MINER_ADDR]] #ToDo Longest BlockList + validate voting
+        #block hash = sha256(block_input_stxs[])
+        block_hash = to_sha256(str(msg[input_txs]))
+        block_msg = [1, msg['ts'], block_hash, b'GENESIS',b('[+tx_hash+]'), msg['to_addr']]
+        print('block_msg', block_msg)
         # Save/upDATE Last BlockNUMBER AND hASH on writeNewBlock and onNodeStart
         #service [BlockNumber, MINER_VOTES_LIST, PENALTIED_MINERS_LIST]
         #miner_rewards tx [BlockNumber, REWARDS_TX[asset_type, asset_amount, MINER_ADDR]]
@@ -356,7 +364,7 @@ def validateMsg(msg):
 
 def verifyTx(tx_msg):
     #v1.test()
-    validateMsg(tx_msg)
+    #validateMsg(tx_msg)
     pass
 
 
@@ -414,19 +422,44 @@ RUNTIME_CONFIG['FileConfig'] = getConfig()
 
 
 NODE_ID = None
-def setNodeId(pub_key):
+LOGGER = None
+def getLogger():
+    global LOGGER
+    if LOGGER is None:
+        log_file = "logs/node.log"
+        LOGGER = create_rotating_log(log_file, "logger")
+    return LOGGER
+
+def setNode(pub_key):
     if not pub_key is None:
         global NODE_ID
         NODE_ID = pub_key
         RUNTIME_CONFIG['NodeId'] = pub_key
         setNodeDb(pub_key)
+        getLogger()
+        # log_file = "node.log"
+        # LOGGER = create_rotating_log(log_file, "logger")
+        #LOGGER.info('%s Node %s started' % (utc(), pub_key))
 
 
-def run_version(func, params=''):
+def run_version(func, params=None):
     func(params)
 
 
+def logp(msg, mode, console=DEBUG):
+    msg = '%s %s' % (utc(), msg)
+    #getLogger().mode(msg)
+    #getattr(globals()['LOGGER'], mode)(msg)
+    if mode == 'error':
+        getLogger().error(msg)
+    elif mode=='warn':
+        getLogger().warn(msg)
+    else:
+        getLogger().info(msg)
+    if console:
+        print(msg)
 #############
+
 def add_config_key_value():  # should be approved by nodes quorum
     pass
 
@@ -515,3 +548,63 @@ def getNode(count, nodes={}):
 # IncomingMsg - NoComputeSpeed -> Task Q -> Persist to  Pending [DBQ]-> Validate/Invalidate -> write to Pending DB ->SqlLite or Mongo
 # ##########OnIncomingBlock -> write to TXS, Votes ... delete from temp DB
 # BlockTime = MinerAddr + TShash
+
+
+
+
+# ----------------------------------------------------------------------
+def create_rotating_log(path, label="Rotating Log"):
+    """
+    Creates a rotating log
+    """
+    logger = logging.getLogger(label)
+    logger.setLevel(logging.INFO)
+
+    # add a rotating handler
+    handler = RotatingFileHandler(path, maxBytes=10000000, backupCount=10000)
+    logger.addHandler(handler)
+    return logger
+
+
+# ----------------------------------------------------------------------
+
+##############
+def setup_logger(logger_name, log_file, level=logging.INFO):
+    log_setup = logging.getLogger(logger_name)
+    formatter = logging.Formatter('%(levelname)s: %(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+    fileHandler = logging.FileHandler(log_file, mode='a')
+    fileHandler.setFormatter(formatter)
+    streamHandler = logging.StreamHandler()
+    streamHandler.setFormatter(formatter)
+    log_setup.setLevel(level)
+    log_setup.addHandler(fileHandler)
+    log_setup.addHandler(streamHandler)
+
+
+def logger(msg, level, logfile):
+    if logfile == 'logger2': log = logging.getLogger('logger2')
+    if logfile == 'logger3': log = logging.getLogger('logger3')
+    if level == 'info': log.info(msg)
+    if level == 'warning': log.warning(msg)
+    if level == 'error': log.error(msg)
+
+
+##############
+
+# if __name__ == "__main__":
+#     log_file1 = "test.log"
+#     logger1 = create_rotating_log(log_file1, "logger1")
+#
+#     log_file2 = "another_test.log"
+#     logger2 = create_rotating_log(log_file2, "logger2")
+#
+#     logger1.info("Test5")
+#     logger2.info("Test6")
+##############
+
+if __name__ == "__main__":
+   project_dir =  os.path.dirname(os.path.abspath(__file__))
+   imp = os.path.join(project_dir, "utils")
+   print (imp)
+   import imp
+   initServiceDB()
