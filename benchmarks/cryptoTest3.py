@@ -23,7 +23,7 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from Crypto.Hash import SHA256
 from Crypto import Random
-import json, ujson
+import json#, ujson
 import msgpack
 
 def dt():
@@ -142,19 +142,19 @@ print('jsonb', type(tx_msg_jsonb), type(tx_msg_json), tx_msg_jsonb ) #, len(tx_m
 signature = privKeyObj.sign(tx_msg_jsonb, privKeyObj.publickey().key.n) #pbk_n pubKeyObj.key.n tx_msg_jsonb
 tx['sig'] = signature
 print('signature', type(signature), sys.getsizeof(signature), signature)
-tx_msg_from_bytes = json.loads(tx_msg_jsonb)
-print('tx_msg_from_bytes', tx_msg_from_bytes)
+#tx_msg_from_bytes = json.loads(tx_msg_jsonb)
+#print('tx_msg_from_bytes', tx_msg_from_bytes)
 tx_json = json.dumps(tx, cls=JsonEncoder)
 tx_jsonb = tx_json.encode('utf8')
-tx_from_bytes = json.loads(tx_jsonb)
-tx_msg = tx_from_bytes['msg']
+#tx_from_bytes = json.loads(tx_jsonb)
+#tx_msg = tx_from_bytes['msg']
 print('tx_msg_from_bytes2', type(tx_msg), tx_msg)
-print('tx_jsonb', sys.getsizeof(tx_jsonb), type(tx_msg), type(tx_msg_jsonb), tx_msg == json.loads(tx_msg_jsonb))
+#print('tx_jsonb', sys.getsizeof(tx_jsonb), type(tx_msg), type(tx_msg_jsonb), tx_msg == json.loads(tx_msg_jsonb))
 signature = privKeyObj.sign(tx_msg_jsonb, privKeyObj.publickey().key.n)
 pubKeyObj = RSA.importKey(tx['pub_key']) #tx_msg_from_bytes['pub_key']
 print('PubKeys equal', pubKeyObj.publickey() == privKeyObj.publickey(), pubKeyObj.publickey().key.n)
-print('SigFromBytes', type(tx_from_bytes['sig']), tuple(tx_from_bytes['sig']))
-print('Verified Signature', tuple(tx_from_bytes['sig']) == signature, pubKeyObj.publickey().verify(tx_msg_jsonb, tuple(tx_from_bytes['sig'])) ) #tuple(tx_from_bytes['sig'])
+#print('SigFromBytes', type(tx_from_bytes['sig']), tuple(tx_from_bytes['sig']))
+#print('Verified Signature', tuple(tx_from_bytes['sig']) == signature, pubKeyObj.publickey().verify(tx_msg_jsonb, tuple(tx_from_bytes['sig'])) ) #tuple(tx_from_bytes['sig'])
 
 #https://stackoverflow.com/questions/20936993/how-can-i-create-a-random-number-that-is-cryptographically-secure-in-python
 #https://blog.gisspan.com/2016/04/making-sense-of-ssl-rsa-x509-and-csr.html
@@ -228,22 +228,27 @@ print(dir(ecdsa))
 
 
 ##################
-# from fastecdsa import curve, ecdsa
-# from hashlib import sha384
-# m = "a message to sign via ECDSA"  # some message
-#
-# ''' use default curve and hash function (P256 and SHA2) '''
+from fastecdsa import curve, ecdsa
+from hashlib import sha256,sha384, sha512
+m = "a message to sign via ECDSA"  # some message
+
+''' use default curve and hash function (P256 and SHA2) '''
 # private_key, public_key = ecdsa.gen_keypair()
 # # standard signature, returns two integers
 # r, s = ecdsa.sign(m, private_key)
 # # should return True as the signature we just generated is valid.
 # valid = ecdsa.verify((r, s), m, public_key)
-#
+
 # ''' specify a different curve to use with ECDSA '''
 # private_key, public_key = ecdsa.gen_keypair(curve=curve.P224)
 # r, s = ecdsa.sign(m, private_key, curve=curve.P224)
 # valid = ecdsa.verify((r, s), m, public_key, curve=curve.P224)
-#
+
+''' specify a different hash function to use with ECDSA '''
+# private_key, public_key = ecdsa.gen_keypair()
+# r, s = ecdsa.sign(m, private_key, hashfunc=sha256)
+# valid = ecdsa.verify((r, s), m, public_key, hashfunc=sha256)
+
 # ''' specify a different hash function to use with ECDSA '''
 # private_key, public_key = ecdsa.gen_keypair()
 # r, s = ecdsa.sign(m, private_key, hashfunc=sha384)
