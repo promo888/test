@@ -7,6 +7,7 @@ import threading
 from queue import Queue
 from multiprocessing import Process, Manager, Pool
 import itertools
+import msgpack as mp
 from utils import *
 from v import *
 
@@ -167,10 +168,36 @@ start_node('71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16') #
 
 print('GENESIS TX exist: ', isDBvalue(b'TX-GENESIS', NODE_DB), 'TX-GENESIS')
 print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB), b(MSG_TYPE_UNSPENT_TX + 'GENESIS'))
-pmsg = getDB(b'TX-GENESIS', NODE_DB)
-v1.validateMsg(pmsg)
-print('ServiceDB pending table', getServiceDB("select count(*) from pending"), getServiceDB("select * from pending"))
 
+
+
+#print('GENESIS TX exist: ', isDBvalue(b'TX-GENESIS', NODE_DB), 'TX-GENESIS')
+#print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB), b(MSG_TYPE_UNSPENT_TX + 'GENESIS'))
+#pmsg = getDB(b'TX-GENESIS', NODE_DB)
+# print('bmsg', pmsg)
+#umsg = mp.unpackb(pmsg)
+#print('GENESIS umsg', type(umsg), str(umsg))
+# v1.validateMsg(pmsg)
+# #([print(v) for v in umsg])
+# fields_arr = [str(v) for v in umsg]
+# print('join', ",".join(fields_arr))
+
+# start = time.time()
+# count = 0
+# while time.time() - start < 1:
+#     insertServiceDbPending([pmsg])
+#     count += 1
+# print('%s Inserts within a second' % count)
+
+start = utc()
+# for i in range(1000):
+#     insertServiceDbPending([pmsg] * 1000)
+
+print('Start %s' % start)
+insertServiceDbPending([pmsg] * 3)
+print('Finish %s' % utc())
+print('ServiceDB pending table', getServiceDB("select count(*) from pending_tx"), getServiceDB("select max(node_date) from pending_tx")[0])
+##print('ServiceDB ordered by DATE', getServiceDB("select * from pending order by created_at desc"))
 
 #run_version(v1.test)
 #run_version(v1.test, 'Some Value')

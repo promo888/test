@@ -86,7 +86,7 @@ def initServiceDB():
     global SERVICE_DB
     sql_list = []
     sql1 = '''CREATE TABLE if not exists pending_tx 
-                       (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
                         sigs TEXT BLOB NULL,
                         sig_type BLOB NOT NULL,
                         pub_keys BLOB NOT NULL,                        
@@ -96,8 +96,9 @@ def initServiceDB():
                         to_addr BLOB NULL,
                         asset_type BLOB NOT NULL,
                         amount BLOB NOT NULL,
-                        ts TEXT BLOB NULL,
-                        node_date date NOT NULL   
+                        ts TEXT BLOB NULL,                        
+                        node_verified INTEGER DEFAULT 0,
+                        node_date date NOT NULL
                        );
      '''
     sql_list.append(sql1)
@@ -137,48 +138,49 @@ def insertServiceDB(sql_list):
 
 
 def insertServiceDbPending(bin_msg_list):
-    global SERVICE_DB, NODE_SERVICE_DB
-    try:
-        queries_list = ()
-        keys_list = ()
-        values_list = ()
-        if SERVICE_DB is None:
-            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
-            logp("Connected to ServiceDB", logging.INFO)
-        SERVICE_DB.execute('BEGIN;')
-        for msg in bin_msg_list:
-            version_msg = v(msg, 'msgo', msg)
-            #print('version_msg', version_msg)
-
-            if version_msg is None: #Ommit the message if incorrect version or isNotValid version format
-                continue
-            #TODO validations
-
-            ###
-
-            query = 'INSERT INTO pending_tx '
-            keys = ()
-            values = ()
-            for k in version_msg.keys():
-                keys += (k,)
-                values += (version_msg[k],)
-            keys += ('node_date',)
-            dti = utc()
-            values += (dti,)
-            #print('kv', keys, values)
-            query += ' (' + ",".join([k for k in keys]) + ') values (' + ('?,' * len(keys))[:-1] + ")"
-            #print('query', query, values)
-            SERVICE_DB.execute(query, [sqlite3.Binary(packb(v)) for v in values])
-            queries_list += (query,)
-            keys_list += (keys,)
-            values_list += (([sqlite3.Binary(packb(v)) for v in values]),)
-        SERVICE_DB.commit()
-        return True
-    except Exception as ex:
-        err_msg = 'Exception on Insert (%s) to SqlLite NODE_SERVICE_DB:  %s, %s' % (bin_msg_list, ex, exc_info())
-        SERVICE_DB.rollback()
-        logp(err_msg, logging.ERROR)
-        return None
+    # global SERVICE_DB, NODE_SERVICE_DB
+    # try:
+    #     queries_list = ()
+    #     keys_list = ()
+    #     values_list = ()
+    #     if SERVICE_DB is None:
+    #         SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
+    #         logp("Connected to ServiceDB", logging.INFO)
+    #     SERVICE_DB.execute('BEGIN;')
+    #     for msg in bin_msg_list:
+    #         version_msg = v(msg, 'msgo', msg)
+    #         #print('version_msg', version_msg)
+    #
+    #         if version_msg is None: #Ommit the message if incorrect version or isNotValid version format
+    #             continue
+    #         ###TODO validations
+    #
+    #         ###
+    #
+    #         query = 'INSERT INTO pending_tx '
+    #         keys = ()
+    #         values = ()
+    #         for k in version_msg.keys():
+    #             keys += (k,)
+    #             values += (version_msg[k],)
+    #         keys += ('node_date',)
+    #         dti = utc() #TODO to thinkk change for ts (time.time() ,9bytes instead 27 + clients_ts  = ~40 bytes per record, 16b in LevelDB time.time()
+    #         values += (dti,)
+    #         #print('kv', keys, values)
+    #         query += ' (' + ",".join([k for k in keys]) + ') values (' + ('?,' * len(keys))[:-1] + ")"
+    #         #print('query', query, values)
+    #         SERVICE_DB.execute(query, [sqlite3.Binary(packb(v)) for v in values])
+    #         queries_list += (query,)
+    #         keys_list += (keys,)
+    #         values_list += (([sqlite3.Binary(packb(v)) for v in values]),)
+    #     SERVICE_DB.commit()
+    #     return True
+    # except Exception as ex:
+    #     err_msg = 'Exception on Insert (%s) to SqlLite NODE_SERVICE_DB:  %s, %s' % (bin_msg_list, ex, exc_info())
+    #     SERVICE_DB.rollback()
+    #     logp(err_msg, logging.ERROR)
+    #     return None
+    return v_msg_list('insertServiceDbPending', bin_msg_list)
 
 
 def getServiceDB(sql):
@@ -315,6 +317,18 @@ def v(msg, func, *params): #VerNum methods
         return None
 
 
+def v_msg_list(func, bin_msg_list):
+    if func is None or bin_msg_list is None or type(bin_msg_list) is not list or len(bin_msg_list) < 1:
+        return None
+    else:
+        try:
+            #for m in bin_msg_list:
+            #    return v(m, func, m)
+            return v(bin_msg_list[0], func, bin_msg_list)
+        except:
+            return None
+
+
 
 def vv(ver_num):
     return 'v%s' % str(ver_num)
@@ -339,14 +353,14 @@ def insertGenesis(): #TODO onStartNode
         genesis_sig = {'r': 36406343224692063900833029031111854117178867930743205589528043357636889016454,
                        's': 6504559082621797771456835002966813839522833454231390100388342046748949207233}
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
-        genesis_tx_hash = '9c60a102a281dcf5502ec99410b8a15197a29fff599c301fa7759c743ec6fcd0'
+        genesis_tx_hash = '8653a2091acd59926b264652d21449e2336750021390000428a45792ef3b4a38'
         genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
 
         #msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'sigs', 'sig_type', 'pub_keys', 'msg_type', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
 
         genesis_tx = ('1', ['%s %s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s %s' % (genesis_pub_key['x'], genesis_pub_key['y'])], MSG_TYPE_TX, ['GENESIS'], genesis_to_addr, '1', 10000000000, merkle_date)  # from_address=sha256(pub_key)
         genesis_msg = ('1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx) #ver_num, msg_type, tx_hash
-        tx_hash = to_sha256(str(genesis_tx[1:])) #2nd value is MsgSig - extracted from msg
+        tx_hash = to_sha256(str(genesis_tx)) #[1:] 2nd value is MsgSig - extracted from msg
         print('Genesis TX Hash: ', tx_hash)  # TODO validation
         assert (tx_hash == genesis_tx_hash)
         print('Genesis Msg Hash - Output TX: ', to_sha256(str(genesis_msg))) #TODO validation
@@ -365,6 +379,7 @@ def insertGenesis(): #TODO onStartNode
         print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
         genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
         insertDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), packb(genesis_unspent_tx), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
+        #insertDB(b(MSG_TYPE_UNSPENT_TX + tx_hash), packb(genesis_unspent_tx), NODE_DB)
         print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
         #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST - (outputs_list), MINER_ADDR]] #ToDo Longest BlockList + validate voting
         #block hash = sha256(block_input_txs[])
@@ -383,9 +398,10 @@ def insertGenesis(): #TODO onStartNode
     print('GENESIS- key in NODE_DB', getDB(b'KEY_NOT_EXIST', NODE_DB), 'KEY_NOT_EXIST')
     print('TX_GENESIS key in NODE_DB', getDB(b'TX_GENESIS', NODE_DB), 'TX_GENESIS')
     # deleteDB(b'GENESIS', NODE_DB)
-    print('GENESIS key in NODE_DB', isDBvalue(b'TX-GENESIS', NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
-    print('GENESIS TX value in NODE_DB', unpackb(getDB(b'TX-GENESIS', NODE_DB)) if isDBvalue(b'TX-GENESIS', NODE_DB) else 'NOT_FOUND')
-    print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
+    print('GENESIS key in NODE_DB', isDBvalue(b(MSG_TYPE_TX + 'GENESIS'), NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
+    print('GENESIS TX value in NODE_DB', unpackb(getDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB)) if isDBvalue(b(MSG_TYPE_UNSPENT_TX + "GENESIS"), NODE_DB) else 'NOT_FOUND') #unpackb(getDB(b'TX-GENESIS', if b'TX-GENESIS'NODE_DB))
+    #print('GENESIS TX value in NODE_DB', unpackb(getDB(b(MSG_TYPE_UNSPENT_TX + tx_hash), NODE_DB)) if isDBvalue(b(MSG_TYPE_UNSPENT_TX + tx_hash), NODE_DB) else 'NOT_FOUND') #unpackb(getDB(b'TX-GENESIS', if b'TX-GENESIS'NODE_DB))
+    print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b(MSG_TYPE_UNSPENT_TX + "GENESIS"), NODE_DB))) #unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
     print(os.listdir(ROOT_DIR+'/v'))
     print('Amount of v files', len([f for f in os.listdir(ROOT_DIR+'/v') if '_' not in f and os.path.isfile(ROOT_DIR+'/v/'+f)])) #Validation for v numbers + validate valid enumeration in v folder
     #v1.test('CALL')
