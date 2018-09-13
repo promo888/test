@@ -85,22 +85,43 @@ def getNodeId():
 def initServiceDB():
     global SERVICE_DB
     sql_list = []
+    # sql1 = '''CREATE TABLE if not exists pending_tx
+    #                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #                     sigs TEXT BLOB NULL,
+    #                     sig_type BLOB NOT NULL,
+    #                     pub_keys BLOB NOT NULL,
+    #                     ver_num BLOB NOT NULL,
+    #                     msg_type BLOB NOT NULL,
+    #                     input_txs BLOB NOT NULL,
+    #                     to_addr BLOB NULL,
+    #                     asset_type BLOB NOT NULL,
+    #                     amount BLOB NOT NULL,
+    #                     ts TEXT BLOB NULL,
+    #                     node_verified INTEGER DEFAULT 0,
+    #                     node_date date NOT NULL,
+    #                     tx_hash TEXT BLOB NULL
+    #                    );
+    #  '''
+
     sql1 = '''CREATE TABLE if not exists pending_tx 
-                       (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
-                        sigs TEXT BLOB NULL,
-                        sig_type BLOB NOT NULL,
-                        pub_keys BLOB NOT NULL,                        
-                        ver_num BLOB NOT NULL,
-                        msg_type BLOB NOT NULL,
-                        input_txs BLOB NOT NULL,                        
-                        to_addr BLOB NULL,
-                        asset_type BLOB NOT NULL,
-                        amount BLOB NOT NULL,
-                        ts TEXT BLOB NULL,                        
-                        node_verified INTEGER DEFAULT 0,
-                        node_date date NOT NULL
-                       );
-     '''
+                           (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
+                            sigs TEXT NOT NULL,
+                            sig_type TEXT NOT NULL,
+                            pub_keys TEXT NOT NULL,                        
+                            ver_num  TEXT  NOT NULL,
+                            msg_type TEXT NOT NULL,
+                            input_txs TEXT NOT NULL,   
+                            output_txs TEXT NOT NULL,
+                            from_addr TEXT NOT NULL,                     
+                            to_addr  TEXT NULL,
+                            asset_type TEXT NOT NULL,
+                            amount REAL NOT NULL,
+                            ts TEXT NOT NULL,                        
+                            node_verified INTEGER DEFAULT 0,
+                            node_date date NOT NULL,
+                            tx_hash TEXT NOT NULL
+                           );
+         '''
     sql_list.append(sql1)
     try:
         insertServiceDB(sql_list)
@@ -203,7 +224,7 @@ def insertDB(bin_key, bin_value, db_path):
             DB = leveldb.LevelDB(db_path)
         DB.Put(bin_key, bin_value)
     except Exception as ex:
-        err_msg = 'Exception on insert (key %s) to LevelDB NODE_DB: %s %s %s' % (bin_key, ex, exc_info())
+        err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (bin_key, bin_value, ex, exc_info())
         logp(err_msg, logging.ERROR)
 
 
@@ -297,21 +318,23 @@ def v(msg, func, *params): #VerNum methods
     module = None
     try:
         if type(msg) is bytearray:
-            module = 'v' + to_s(unpackb(msg)[0]) #ver_num index CONST in all messages
+            module = 'v' + to_s(unpackb(msg)[b'data'][0]) #ver_num index CONST in all messages
+        elif type(msg) is str:
+             module = msg
         else:
-            module = 'v' + to_s(msg[3])
+            module = 'v' + msg[0] #to_s(msg[0])
         if (module is None):
             logp('VerNum module is None', logging.ERROR)
         if params != None and len(params) == 1:
             #args = unpackb(params[0])
-            return getattr(globals()[module], func)(params[0])
+            return getattr(globals()[module], func)(msg, params[0])
         elif params != None and len(params) > 1:
             args = [unpackb(a) for a in params if type(a) is bytearray]
-            return getattr(globals()[module], func)(*params)
+            return getattr(globals()[module], func)(msg, *params)
         else:
-            return getattr(globals()[module], func)()
+            return getattr(globals()[module], func)(msg)
     except Exception as ex:
-        err_msg = '%s Exception: %s , call func %s.%s(%s) failed , %s' %(utc(), ex, module, func, params, exc_info())
+        err_msg = '%s Exception: %s , call func %s.%s(%s) failed , %s' % (utc(), ex, module, func, params, exc_info())
         getLogger().error(err_msg)
         print(err_msg)
         return None
@@ -335,7 +358,8 @@ def vv(ver_num):
 
 
 def vvv(msg, version_number, msg_type, field):
-    field_index = v('v' + version_number, 'msgi', msg_type, field)
+    #field_index = v('v' + version_number, 'msgi', msg_type, field)
+    field_index = v(msg, 'msgi', field)
     if field_index is None:
         return None
     else:
@@ -353,12 +377,14 @@ def insertGenesis(): #TODO onStartNode
         genesis_sig = {'r': 36406343224692063900833029031111854117178867930743205589528043357636889016454,
                        's': 6504559082621797771456835002966813839522833454231390100388342046748949207233}
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
-        genesis_tx_hash = '8653a2091acd59926b264652d21449e2336750021390000428a45792ef3b4a38'
+        genesis_tx_hash = '45a5428e7718034b7f1a5492621f16ab6365d84b511b77da7f34215e00a3bcf4'
         genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
 
-        #msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'sigs', 'sig_type', 'pub_keys', 'msg_type', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
+        #msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'msg_type', 'sigs', 'sig_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr, 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
 
-        genesis_tx = ('1', ['%s %s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s %s' % (genesis_pub_key['x'], genesis_pub_key['y'])], MSG_TYPE_TX, ['GENESIS'], genesis_to_addr, '1', 10000000000, merkle_date)  # from_address=sha256(pub_key)
+        #from_addr = to_sha256(genesis_pub_key)
+        #output_txs = MSG_TYPE_UNSPENT_TX + to_sha256(tx_hash+to_addr) #if remainder +output_tx to from address; output_txs = unspent_txs -> Block->Tx->MarkInputs as Outputs/UTXO
+        genesis_tx = ('1', MSG_TYPE_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['GENESIS'], ['GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)  # from_address=sha256(pub_key)
         genesis_msg = ('1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx) #ver_num, msg_type, tx_hash
         tx_hash = to_sha256(str(genesis_tx)) #[1:] 2nd value is MsgSig - extracted from msg
         print('Genesis TX Hash: ', tx_hash)  # TODO validation
@@ -372,9 +398,15 @@ def insertGenesis(): #TODO onStartNode
 
         # msg_fields = ['%s' % t for t in msg_fields_tx]
         print("Insert GENESIS TX")
-        genesis_packed_msg = packb(genesis_tx)
+
+        ##genesis_packed_msg = packb(genesis_tx)
+        genesis_packed_msg = packb({'tx_hash': tx_hash, 'data': genesis_tx})
         #ONLY TX is written to DB, while HASH is validated/calculated #todo
+
+        ##insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
         insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
+
+
         #unspent_tx_fields [prefix_type - (TX, Contract, Vote, Service, ...etc), key(txid: sha256(msg)),value([asset_type, amount])
         print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
         genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
@@ -383,11 +415,17 @@ def insertGenesis(): #TODO onStartNode
         print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
         #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST - (outputs_list), MINER_ADDR]] #ToDo Longest BlockList + validate voting
         #block hash = sha256(block_input_txs[])
-        #block_hash = to_sha256(str(msg[input_txs]))
-        #block_msg = [1, msg['ts'], block_hash, b'GENESIS',b('[+tx_hash+]'), msg['to_addr']]
+
+        #BlockBody (verNumber, blockNumber, PreviousBlockHash, input_tx_list)
+        block_msg_fields  = ['1', MSG_TYPE_BLOCK + '1', 'GENESIS', [MSG_TYPE_UNSPENT_TX + 'GENESIS']]
+        block_msg_hash = to_sha256(str(block_msg_fields))
+        #BlockMsg (block_hash, block_body)
+        block_msg = {'block_hash': block_msg_hash, 'data': block_msg_fields}
+        block_msgb = packb(block_msg)
+        insertDB(packb(block_msg_fields[1]), block_msgb, NODE_DB)
 
         ##print('txi', v(vv('1'), 'txi', 'ts'))
-        print('msgv', vvv(genesis_msg, genesis_msg[0], MSG_TYPE_TX, 'ts'))
+        print('msgv', vvv(genesis_msg, genesis_msg[0], genesis_msg[1], 'ts')) #MSG_TYPE_TX=genesis_msg[1]
 
         #print('block_msg', block_msg)        # Save/upDATE Last BlockNUMBER AND hASH on writeNewBlock and onNodeStart
         #service [BlockNumber, MINER_VOTES_LIST, PENALTIED_MINERS_LIST]
