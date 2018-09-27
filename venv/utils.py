@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, re
 import calendar
 from datetime import *
 from time import *
@@ -32,8 +32,9 @@ PORT_REP_SERVER = 7777   # Receiving data from the world TXs, quiries ...etc
 PORT_UDP_SERVER = 8888   # Receiving data from miners
 MSG_TYPE_TX_ACCEPTED_AND_VALID = "TXQ"
 MSG_TYPE_TX_VERIFIED_AND_PENDING = "TXP"
-MSG_TYPE_TX = "TX-" #SPENT TX
-MSG_TYPE_UNSPENT_TX = "TX_"
+MSG_TYPE_SPEND_TX = "TX-" #spending TX
+MSG_TYPE_UNSPENT_TX = "TX_" #unspent amounts/TX
+MSG_TYPE_UNSPENT_SPENT_TX = "-TX" #mark unspent amounts/TX as spent
 MSG_TYPE_MULTI_SIG = "MNS"
 MSG_TYPE_VOTE = "VOT"
 MSG_TYPE_CONTRACT = "CNT"
@@ -45,6 +46,7 @@ REQUEST_TYPE_TX = 'RTX' #used to retrieve ALL type of messages by specifying MSG
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 NODE_DB = '%s/db/DATA' % ROOT_DIR
 NODE_SERVICE_DB = '%s/service_db/DATA/service.db' % ROOT_DIR
+#NODE_WALLET_DB = '%s/wallet_db/DATA/wallet.db' % ROOT_DIR
 
 
 # TXS_DB = '%s/db/TXS' % ROOT_DIR
@@ -68,42 +70,25 @@ def setRuntimeConfig(key,value):
 
 
 def setNodeDb(pub_key):
-    RUNTIME_CONFIG['NODE_TYPE'] = getNodeId()
+    #RUNTIME_CONFIG['NODE_TYPE'] = getNodeId()
     dirs = [NODE_DB, NODE_SERVICE_DB, 'logs'] #[NODE_DB, TXS_DB, UTXS_DB, VOTES_DB, CONTRACTS_DB, SERVICE_DB, PENDING_DB]
     for folder in dirs:
         if not os.path.exists(folder):
             if folder == NODE_SERVICE_DB:
                 folder = folder.replace('/service.db', '')
             os.makedirs(folder)
-    initServiceDB()
-
+    initServiceDB(pub_key)
+    RUNTIME_CONFIG['PUB_KEY'] = pub_key
 
 def getNodeId():
     return NODE_ID
 
-
-def initServiceDB():
+#TODO remove PUB_KEY ->used 4 testing
+def initServiceDB(pub_key=''):
     global SERVICE_DB
     sql_list = []
-    # sql1 = '''CREATE TABLE if not exists pending_tx
-    #                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #                     sigs TEXT BLOB NULL,
-    #                     sig_type BLOB NOT NULL,
-    #                     pub_keys BLOB NOT NULL,
-    #                     ver_num BLOB NOT NULL,
-    #                     msg_type BLOB NOT NULL,
-    #                     input_txs BLOB NOT NULL,
-    #                     to_addr BLOB NULL,
-    #                     asset_type BLOB NOT NULL,
-    #                     amount BLOB NOT NULL,
-    #                     ts TEXT BLOB NULL,
-    #                     node_verified INTEGER DEFAULT 0,
-    #                     node_date date NOT NULL,
-    #                     tx_hash TEXT BLOB NULL
-    #                    );
-    #  '''
-
-    sql1 = '''CREATE TABLE if not exists pending_tx 
+    #Node section
+    sql_node_spending_tx = '''CREATE TABLE if not exists pending_tx
                            (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
                             sigs TEXT NOT NULL,
                             sig_type TEXT NOT NULL,
@@ -121,8 +106,41 @@ def initServiceDB():
                             node_date date NOT NULL,
                             tx_hash TEXT NOT NULL
                            );
-         '''
-    sql_list.append(sql1)
+         ''' #% pub_key
+
+    #Wallet section
+    sql_wallet_spending_tx = '''CREATE TABLE if not exists spending_tx
+                               (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
+                                sigs TEXT NOT NULL,
+                                sig_type TEXT NOT NULL,
+                                pub_keys TEXT NOT NULL,                        
+                                ver_num  TEXT  NOT NULL,
+                                msg_type TEXT NOT NULL,
+                                input_txs TEXT NOT NULL,   
+                                output_txs TEXT NOT NULL,
+                                from_addr TEXT NOT NULL,                     
+                                to_addr  TEXT NULL,
+                                asset_type TEXT NOT NULL,
+                                amount REAL NOT NULL,
+                                ts TEXT NOT NULL,                        
+                                tx_hash TEXT NOT NULL
+                               );
+             '''  #% pub_key
+
+    # tx_type: 0 - Unspent, 1 - Spent ; tx_id = tx_hash + NodeSalt?
+    sql_wallet_spent_unspent_txs = '''CREATE TABLE if not exists wallet
+                                   (id INTEGER PRIMARY KEY AUTOINCREMENT,    
+                                    ver_num  TEXT  NOT NULL,                   
+                                    tx_type INTEGER NOT NULL,
+                                    tx_hash TEXT NOT NULL,
+                                    tx_id DEFAULT NULL,
+                                    block_num INTEGER DEFAULT NULL,                        
+                                    block_hash TEXT DEFAULT NULL                                   
+                                   );
+                 '''  #% pub_key
+    sql_list.append(sql_node_spending_tx) #ToDo add spent/unspent
+    sql_list.append(sql_wallet_spending_tx)
+    sql_list.append(sql_wallet_spent_unspent_txs) #ToDo update from response/confirmations ?
     try:
         insertServiceDB(sql_list)
         logp('ServiceDB Init successfull', logging.INFO)
@@ -368,7 +386,7 @@ def vvv(msg, version_number, msg_type, field):
 
 def insertGenesis(): #TODO onStartNode
 
-    if not isDBvalue(b'TX_GENESIS', NODE_DB):
+    if not isDBvalue(b(MSG_TYPE_SPEND_TX + 'GENESIS'), NODE_DB): # and not isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB):
         #txs_db = leveldb.LevelDB(TXS_DB)
         #utxs_db  = leveldb.LevelDB(UTXS_DB)
         merkle_date = '01-01-2018 00:00:00.000'
@@ -377,20 +395,20 @@ def insertGenesis(): #TODO onStartNode
         genesis_sig = {'r': 36406343224692063900833029031111854117178867930743205589528043357636889016454,
                        's': 6504559082621797771456835002966813839522833454231390100388342046748949207233}
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
-        genesis_tx_hash = '45a5428e7718034b7f1a5492621f16ab6365d84b511b77da7f34215e00a3bcf4'
+        genesis_tx_hash = '3fade5b1991d6672440c303b346e63b1b57cdb3d5a96a20a56911223199a548b'
         genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
 
         #msg_fields_tx = v(vv('1'), 'txf')  #['ver_num', 'msg_type', 'sigs', 'sig_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr, 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
 
         #from_addr = to_sha256(genesis_pub_key)
         #output_txs = MSG_TYPE_UNSPENT_TX + to_sha256(tx_hash+to_addr) #if remainder +output_tx to from address; output_txs = unspent_txs -> Block->Tx->MarkInputs as Outputs/UTXO
-        genesis_tx = ('1', MSG_TYPE_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['GENESIS'], ['GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)  # from_address=sha256(pub_key)
-        genesis_msg = ('1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx) #ver_num, msg_type, tx_hash
+        genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)  # from_address=sha256(pub_key)
+        genesis_msg = ('1', MSG_TYPE_SPEND_TX, genesis_tx_hash, genesis_tx) #ver_num, msg_type, tx_hash
         tx_hash = to_sha256(str(genesis_tx)) #[1:] 2nd value is MsgSig - extracted from msg
         print('Genesis TX Hash: ', tx_hash)  # TODO validation
         assert (tx_hash == genesis_tx_hash)
         print('Genesis Msg Hash - Output TX: ', to_sha256(str(genesis_msg))) #TODO validation
-        verifyTx(genesis_tx)
+        #verifyTx(genesis_tx)
         unspent_tx = msg_hash = to_sha256(str(genesis_tx))
         #unspent_tx = msg_hash = to_sha256(str(genesis_msg))
         #assert (genesis_msg_hash == msg_hash)
@@ -404,20 +422,21 @@ def insertGenesis(): #TODO onStartNode
         #ONLY TX is written to DB, while HASH is validated/calculated #todo
 
         ##insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
-        insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
+        insertDB(b(MSG_TYPE_SPEND_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
 
 
         #unspent_tx_fields [prefix_type - (TX, Contract, Vote, Service, ...etc), key(txid: sha256(msg)),value([asset_type, amount])
-        print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
-        genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
+        print('[TX_MSG_HASH = UNSPENT_TX_ID],input_tx, to_addr, asset_type, amount, input_tx - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-3], genesis_tx[-2], b(MSG_TYPE_SPEND_TX + 'GENESIS'))
+        genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2], b(MSG_TYPE_SPEND_TX + 'GENESIS')] #MSG_TYPE_UNSPENT_TX + unspent_tx,
+        print('genesis_unspent_tx', genesis_unspent_tx)
         insertDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), packb(genesis_unspent_tx), NODE_DB) #getIndexByFields + Constants for PREFIX_TYPE
         #insertDB(b(MSG_TYPE_UNSPENT_TX + tx_hash), packb(genesis_unspent_tx), NODE_DB)
         print('Unpacked GenesisTX type', type(unpackb(genesis_packed_msg)))
         #block fields: [BlockNumber, BlockHash(ToDoCalc), BlockMsg:[BlockNumber #, BlockTS, PrevBlockHash, TXS_HASH_LIST - (outputs_list), MINER_ADDR]] #ToDo Longest BlockList + validate voting
         #block hash = sha256(block_input_txs[])
 
-        #BlockBody (verNumber, blockNumber, PreviousBlockHash, input_tx_list)
-        block_msg_fields  = ['1', MSG_TYPE_BLOCK + '1', 'GENESIS', [MSG_TYPE_UNSPENT_TX + 'GENESIS']]
+        #BlockBody (verNumber, blockNumber, PreviousBlockHash, input_tx_list, output_tx_list)
+        block_msg_fields  = ['1', MSG_TYPE_BLOCK + '1', 'GENESIS', [MSG_TYPE_SPEND_TX + 'GENESIS'], [MSG_TYPE_UNSPENT_TX + genesis_tx_hash]]
         block_msg_hash = to_sha256(str(block_msg_fields))
         #BlockMsg (block_hash, block_body)
         block_msg = {'block_hash': block_msg_hash, 'data': block_msg_fields}
@@ -436,7 +455,7 @@ def insertGenesis(): #TODO onStartNode
     print('GENESIS- key in NODE_DB', getDB(b'KEY_NOT_EXIST', NODE_DB), 'KEY_NOT_EXIST')
     print('TX_GENESIS key in NODE_DB', getDB(b'TX_GENESIS', NODE_DB), 'TX_GENESIS')
     # deleteDB(b'GENESIS', NODE_DB)
-    print('GENESIS key in NODE_DB', isDBvalue(b(MSG_TYPE_TX + 'GENESIS'), NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
+    print('GENESIS key in NODE_DB', isDBvalue(b(MSG_TYPE_SPEND_TX + 'GENESIS'), NODE_DB)) # TXS_DB #'./../home/igorb/PycharmProjects/test/venv/db/71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16/TXS'
     print('GENESIS TX value in NODE_DB', unpackb(getDB(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB)) if isDBvalue(b(MSG_TYPE_UNSPENT_TX + "GENESIS"), NODE_DB) else 'NOT_FOUND') #unpackb(getDB(b'TX-GENESIS', if b'TX-GENESIS'NODE_DB))
     #print('GENESIS TX value in NODE_DB', unpackb(getDB(b(MSG_TYPE_UNSPENT_TX + tx_hash), NODE_DB)) if isDBvalue(b(MSG_TYPE_UNSPENT_TX + tx_hash), NODE_DB) else 'NOT_FOUND') #unpackb(getDB(b'TX-GENESIS', if b'TX-GENESIS'NODE_DB))
     print('GENESIS UNSPENT_TX value in NODE_DB', unpackb(getDB(b(MSG_TYPE_UNSPENT_TX + "GENESIS"), NODE_DB))) #unpackb(getDB(b'TX_GENESIS', NODE_DB)) if isDBvalue(b'TX_GENESIS', NODE_DB) else 'NOT_FOUND')
@@ -448,8 +467,25 @@ def insertGenesis(): #TODO onStartNode
     #func = getattr(globals()['v1'], 'test')
     #globals()['v1'].test('DYNAMIC-')
     #func('DYNAMIC+')
+    gmsg = getDB(b'TX-GENESIS', NODE_DB)
+    ##insertServiceDbPending([gmsg])
+    #pmsg = getServiceDB("select * from pending_tx where id=1")[0]
+    bmsg = unpackb(gmsg)[b'data']
+    keys = v1.TX_MSG_FIELDS
+    ##pmsg = getServiceDB("select %s from pending_tx where id=1" % (",".join(keys)))[0]
 
-
+    msg_list = getServiceDB("select %s from pending_tx where tx_hash='%s'" % (",".join(keys), to_sha256(bmsg)))
+    if len(msg_list) == 0:
+        insertServiceDbPending([gmsg])
+    else: #ToDo remove to validate
+        pmsg = msg_list[0]
+        msg = []
+        for f in pmsg:
+            msg.append(float(f), ) if type(f) is float else None
+            msg.append(([b(f.replace("[", "").replace("]", ""))]),) if type(f) is str and re.search(r'^\[.*\]$', f) is not None else None
+            msg.append(b(f), ) if type(f) is str and "[" not in f else None
+        assert bmsg == msg
+        assert to_sha256(bmsg) == to_sha256(msg)
 
 def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/c of high traffic unable to calc/validate before persist ?
 
@@ -465,8 +501,8 @@ def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/
         genesis_tx_hash = '3bbc8b608031e0c9444c293f7ed1031d6683c10869387a83fd8f8a264edba232'
         genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
         msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
-        genesis_tx = ['1', MSG_TYPE_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), '[GENESIS]', genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
-        genesis_msg = ['1', MSG_TYPE_TX, genesis_tx_hash, genesis_tx] #ver_num, msg_type, tx_hash
+        genesis_tx = ['1', MSG_TYPE_SPEND_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), '[GENESIS]', genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
+        genesis_msg = ['1', MSG_TYPE_SPEND_TX, genesis_tx_hash, genesis_tx] #ver_num, msg_type, tx_hash
         tx_hash = to_sha256(str(genesis_tx))
         print('Genesis TX Hash: ', tx_hash)  # TODO validation
         assert (tx_hash == genesis_tx_hash)
@@ -481,7 +517,7 @@ def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/
         print("Insert GENESIS TX")
         genesis_packed_msg = packb(genesis_tx)
         #ONLY TX is written to DB, while HASH is validated/calculated #todo
-        insertDB(b(MSG_TYPE_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
+        insertDB(b(MSG_TYPE_SPEND_TX + 'GENESIS'), genesis_packed_msg, NODE_DB)
         #unspent_tx_fields [prefix_type - (TX, Contract, Vote, Service, ...etc), key(txid: sha256(msg)),value([asset_type, amount])
         print('[TX_MSG_HASH = UNSPENT_TX_ID], input_tx, to_addr, asset_type, amount - ', MSG_TYPE_UNSPENT_TX + unspent_tx, genesis_tx[-4], genesis_tx[-4], genesis_tx[-3], genesis_tx[-2])
         genesis_unspent_tx = [genesis_tx[-4], genesis_tx[-3], genesis_tx[-2]] #MSG_TYPE_UNSPENT_TX + unspent_tx,
@@ -578,7 +614,7 @@ def setNode(pub_key):
         global NODE_ID
         NODE_ID = pub_key
         RUNTIME_CONFIG['NodeId'] = pub_key
-        setNodeDb(pub_key)
+        setNodeDb(pub_key) #4 testing pub_key
         getLogger()
 
 

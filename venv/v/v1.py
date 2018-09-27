@@ -52,8 +52,8 @@ def txi(field):
 
 
 def msgi(msg, field):
-    from utils import MSG_TYPE_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_CONTRACT, MSG_TYPE_BLOCK
-    if type(msg) is dict or tuple and msg[-1][1] == MSG_TYPE_TX or msg[1] == MSG_TYPE_TX or msg[b'data'][txi("msg_type")] == b(MSG_TYPE_TX):
+    from utils import MSG_TYPE_SPEND_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_CONTRACT, MSG_TYPE_BLOCK
+    if type(msg) is dict or tuple and msg[-1][1] == MSG_TYPE_SPEND_TX or msg[1] == MSG_TYPE_SPEND_TX or msg[b'data'][txi("msg_type")] == b(MSG_TYPE_SPEND_TX):
         return getTxMsgFieldIndex(field)
     else:
         return None
@@ -69,8 +69,18 @@ def txfs():
     return TX_SERVICE_MSG_FIELDS
 
 
-def msgo(bin_msg):
-    from utils import b, MSG_TYPE_TX, MSG_TYPE_UNSPENT_TX
+def txdict2bin(dict_msg):
+    try:
+        tx_bin = ()
+        for k in TX_MSG_FIELDS:
+            tx_bin += (dict_msg[k],)
+        return tx_bin
+    except:
+        return None
+
+
+def txbin2dict(bin_msg):
+    from utils import b, MSG_TYPE_SPEND_TX, MSG_TYPE_UNSPENT_TX, logging, exc_info, logp
     #importUtils()
     #print('MSG_TYPE_TX', MSG_TYPE_TX)
     #msg_type_index = msgi(mp.unpackb(msg), "msg_type")
@@ -78,7 +88,7 @@ def msgo(bin_msg):
         msg_type = mp.unpackb(bin_msg)[b'data'][1] #msgi(mp.unpackb(msg), "msg_type")
         if type(bin_msg) is bytearray:
             msg = mp.unpackb(bin_msg)[b'data']
-        if msg_type == b(MSG_TYPE_TX):
+        if msg_type == b(MSG_TYPE_SPEND_TX):
             msg_obj = {}
             keys = txf()
             #print('keys', keys)
@@ -91,15 +101,16 @@ def msgo(bin_msg):
                 return None
             return msg_obj
     except:
+        logp("Error? ", exc_info(), logging.ERROR)
         return None
 
 
 def msgf(msg):
-    from utils import b, MSG_TYPE_TX, MSG_TYPE_UNSPENT_TX
+    from utils import b, MSG_TYPE_SPEND_TX, MSG_TYPE_UNSPENT_TX
     #importUtils()
     #print('MSG_TYPE_TX', MSG_TYPE_TX)
     try:
-        if msg[4] == b(MSG_TYPE_TX):
+        if msg[4] == b(MSG_TYPE_SPEND_TX):
             msg_obj = {}
             keys = txf()
             #print('keys', keys)
@@ -123,7 +134,7 @@ def msgv(msg, field):
 
 
 def validateMsg(bin_msg):
-    from utils import b, MSG_TYPE_TX, MSG_TYPE_UNSPENT_TX
+    from utils import b, MSG_TYPE_SPEND_TX, MSG_TYPE_UNSPENT_TX
     umsg = mp.unpackb(bin_msg)
     #print('umsg', umsg)
     fields = msgf(umsg)
@@ -155,6 +166,13 @@ def validateDateFormat(str):
     except:
         return False
 
+def isTxExist(tx_hash):
+    from utils import b, to_sha256, SERVICE_DB, getServiceDB, DB, getDB, isDBvalue, MSG_TYPE_SPEND_TX, MSG_TYPE_UNSPENT_TX
+    if isDBvalue(b(tx_hash), DB) or len(getServiceDB("select * from pending_tx where tx_hash='%s'" % (tx_hash))) > 0:
+        print('%s Exist in DB - Ignore...' % (tx_hash)) #ToDo remove
+        return True
+    return False
+
 
 def validateTX(tx_msg):
     #if not tx_msg['ver_num'].strip == '1' or tx[MSG_TYPE_TX]:
@@ -166,7 +184,7 @@ def validateTX(tx_msg):
     # if len(keys_types) != len(tx_msg)
     #     return False
     #
-    assert type(tx_msg is dict)
+    assert type(tx_msg) is dict
     assert len(keys_types) == len(tx_msg)
     assert len([k for k in keys_types.keys() if k not in tx_msg.keys()]) == 0
     assert len([k for k in tx_msg.keys() if k not in keys_types.keys()]) == 0
@@ -179,19 +197,23 @@ def validateTX(tx_msg):
     if not validateDateFormat(tx_msg['ts']):
         return False
 
-    from utils import b, to_sha256, SERVICE_DB, getServiceDB, DB, getDB, isDBvalue, packb, unpackb, MSG_TYPE_TX, MSG_TYPE_UNSPENT_TX
-    if isDBvalue(b(MSG_TYPE_TX + to_sha256(tx_msg)), DB) is None or \
-        len(getServiceDB("select * from pending_tx where tx_hash='%s%s'" % (MSG_TYPE_TX, to_sha256(tx_msg)))) > 0:
-        print('%s Exist in DB - Ignore...' % (MSG_TYPE_TX + to_sha256(tx_msg)))
-        rmsg = getServiceDB("select %s from pending_tx where tx_hash='%s%s'" % (",".join(TX_MSG_FIELDS), MSG_TYPE_TX, to_sha256(tx_msg)))
-        rd = dict(zip(TX_MSG_FIELDS, rmsg[0])) #
-        for k in rd:  #
-            if type(rd[k]) is str and '[' not in rd[k]:
-                rd[k] = b(rd[k])
-            if type(rd[k]) is str and '[' in rd[k]:
-                lst = rd[k].strip('[]').split(' ') #replace(" ", ",").strip('[]').split(',')
-                rd[k] = [b(e) for e in lst]
-        return False
+    # else:
+    #     rmsg = getServiceDB("select %s from pending_tx where tx_hash='%s%s'" % (
+    #     ",".join(TX_MSG_FIELDS), MSG_TYPE_SPEND_TX, to_sha256(tx_msg)))
+    #     rd = dict(zip(TX_MSG_FIELDS, rmsg[0]))  #
+    #     for k in rd:  #
+    #         if type(rd[k]) is str and '[' not in rd[k]:
+    #             rd[k] = b(rd[k])
+    #         elif type(rd[k]) is str and '[' in rd[k]:
+    #             lst = rd[k].strip('[]').split(' ')  # replace(" ", ",").strip('[]').split(',')
+    #             rd[k] = [b(e) for e in lst]
+    #         else:
+    #             return False
+
+    # pmsg = ()
+    # for k in TX_MSG_FIELDS:
+    #     pmsg += (tx_msg[k],)
+    #
     return True
 #rmsg = getServiceDB("select %s from pending_tx where tx_hash='%s%s'" % (",".join(TX_MSG_FIELDS), MSG_TYPE_TX, to_sha256(tx_msg)))
 #rd = dict(zip(tx_msg.keys(), rmsg[0]))
@@ -201,7 +223,8 @@ def validateTX(tx_msg):
 
 #from utils import SERVICE_DB, NODE_SERVICE_DB, exc_info, logging, logp, utc, packb, unpackb
 def insertServiceDbPending(rec, bin_msg_list):
-    from utils import SERVICE_DB, exc_info, logging, logp, to_s, utc, packb, unpackb, to_sha256, MSG_TYPE_TX, MSG_TYPE_UNSPENT_TX #, MSG_TYPE_TX_ACCEPTED_AND_VALID, MSG_TYPE_TX_VERIFIED_AND_PENDING, MSG_TYPE_MULTI_SIG
+    from utils import RUNTIME_CONFIG, SERVICE_DB, exc_info, logging, logp, to_s, utc, packb, unpackb, to_sha256, MSG_TYPE_SPEND_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_UNSPENT_SPENT_TX
+    #, MSG_TYPE_TX_ACCEPTED_AND_VALID, MSG_TYPE_TX_VERIFIED_AND_PENDING, MSG_TYPE_MULTI_SIG
     try:
         queries_list = ()
         keys_list = ()
@@ -211,16 +234,16 @@ def insertServiceDbPending(rec, bin_msg_list):
             logp("Connected to ServiceDB", logging.INFO)
         SERVICE_DB.execute('BEGIN;')
         for msg in bin_msg_list:
-            version_msg = msgo(msg)
+            version_msg = txbin2dict(msg)
             #print('version_msg', version_msg)
 
             if version_msg is None: #Ommit the message if incorrect version or isNotValid version format
                 continue
-            ###TODO validations
 
-            ###
+            if isTxExist(MSG_TYPE_SPEND_TX + to_sha256(msg)):
+                continue
 
-            query = 'INSERT INTO pending_tx '
+            query = 'INSERT INTO pending_tx' #_%s ' % RUNTIME_CONFIG['PUB_KEY']
             keys = ()
             values = ()
             for k in version_msg.keys():
@@ -228,7 +251,7 @@ def insertServiceDbPending(rec, bin_msg_list):
                 values += (version_msg[k],)
             keys += ('node_date', 'tx_hash')
             dti = utc() #TODO to thinkk change for ts (time.time() ,9bytes instead 27 + clients_ts  = ~40 bytes per record, 16b in LevelDB time.time()
-            values += (dti, MSG_TYPE_TX + to_sha256(version_msg))
+            values += (dti, MSG_TYPE_SPEND_TX + to_sha256(msg))
             #print('kv', keys, values)
             query += ' (' + ",".join([k for k in keys]) + ') values (' + ('?,' * len(keys))[:-1] + ")"
 
