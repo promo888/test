@@ -176,7 +176,7 @@ print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'),
 
 #print('GENESIS TX exist: ', isDBvalue(b'TX-GENESIS', NODE_DB), 'TX-GENESIS')
 #print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB), b(MSG_TYPE_UNSPENT_TX + 'GENESIS'))
-pmsg = getDB(b'TX-GENESIS', NODE_DB)
+pmsg = getDB(b'TX_GENESIS', NODE_DB)
 # print('bmsg', pmsg)
 #umsg = mp.unpackb(pmsg)
 #print('GENESIS umsg', type(umsg), str(umsg))
@@ -199,7 +199,7 @@ start = utc()
 print('Start %s' % start)
 insertServiceDbPending([pmsg] * 3)
 print('Finish %s' % utc())
-print('ServiceDB pending table', getServiceDB("select count(*) from pending_tx"), getServiceDB("select max(node_date) from pending_tx")[0])
+print('ServiceDB pending table', getServiceDB("select count(*) from v1_pending_tx"), getServiceDB("select max(node_date) from v1_pending_tx")[0])
 ##print('ServiceDB ordered by DATE', getServiceDB("select * from pending order by created_at desc"))
 
 #run_version(v1.test)
