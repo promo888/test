@@ -189,6 +189,13 @@ class ECDSA(Benchmark):
         message = '576b2c99564392ed50e36c80654224953fdf8b5259528a1a4342c19be2da9b133c44429ac2be4d5dd588ec28e97015c34db80b7e8d8915e023c2501acd3eafe0'
         signature = b' S\xef\x14x\x06\xeb\xba\xc5\xf9\x0e\xac\x02pL\xbeLO;\x1d"$\xd7\xfc\x07\xfb\x9c\x08\xc5b^\x1e\xec\x19\xb1y\x11\np\xec(\xc9\xf3\xfd\x1f~\xe3\x99\xe8\xc98]\xd3\x951m${\x82\x0f[(\xa9\x90#'
         pubkey = ecda.verify_message(message, signature)
+        start = time.time()
+        duration_secs = 1
+        count = 0
+        while time.time() - start < duration_secs:
+            valid = ecda.verify_message(message, signature)
+            count += 1
+        print('%s ECDSA.time_verify sigs verified within %s secs' % (count, duration_secs))
         signature = b' W\x83\xe5w\x8f\x07\x19EV\xba\x9d\x90\x9f\xfd \x81&\x0f\xa1L\xa00zK0\x08\xf78/\x9d\x0c\x06JFx[*Z\xfe\xd1F\x8d\x9f \x19\xad\xd9\xc9\xbf\xd3\x1br\xdd\x8e\x8ei\xf8\xd2\xf40\xad\xc6\x9c\xe5'
         message = 'foo'
         pubkey = ecda.verify_message(message, signature)
@@ -198,7 +205,7 @@ class ECDSA(Benchmark):
         message = '1234567890'
         signature = b' 7\x82\xe2\xad\xdc\xdb]~\xd6\xa8J\xdc\xa5\xf4\x13<i\xb9\xc0\xdcEc\x10\xd0)t\xc7^\xecw\x05 U\x91\x0f\xa2\xce\x04\xa1\xdb\xb0\nQ\xbd\xafP`\\\x8bb\x99\xcf\xe0;\x01*\xe9D]\xad\xd9l\x1f\x05'
         pubkey = ecda.verify_message(message, signature)
-        print('ECDSA.time_verify')
+        #print('ECDSA.time_verify')
 
 
 class Cryptography(Benchmark):
@@ -229,6 +236,13 @@ class Cryptography(Benchmark):
         message = '576b2c99564392ed50e36c80654224953fdf8b5259528a1a4342c19be2da9b133c44429ac2be4d5dd588ec28e97015c34db80b7e8d8915e023c2501acd3eafe0'
         signature = b' S\xef\x14x\x06\xeb\xba\xc5\xf9\x0e\xac\x02pL\xbeLO;\x1d"$\xd7\xfc\x07\xfb\x9c\x08\xc5b^\x1e\xec\x19\xb1y\x11\np\xec(\xc9\xf3\xfd\x1f~\xe3\x99\xe8\xc98]\xd3\x951m${\x82\x0f[(\xa9\x90#'
         pubkey = ecda.verify_message(message, signature)
+        start = time.time()
+        duration_secs = 1
+        count = 0
+        while time.time() - start < duration_secs:
+            valid = ecda.verify_message(message, signature)
+            count += 1
+        print('%s Cryptography.time_verify sigs verified within %s secs' % (count, duration_secs))
         signature = b' W\x83\xe5w\x8f\x07\x19EV\xba\x9d\x90\x9f\xfd \x81&\x0f\xa1L\xa00zK0\x08\xf78/\x9d\x0c\x06JFx[*Z\xfe\xd1F\x8d\x9f \x19\xad\xd9\xc9\xbf\xd3\x1br\xdd\x8e\x8ei\xf8\xd2\xf40\xad\xc6\x9c\xe5'
         message = 'foo'
         pubkey = ecda.verify_message(message, signature)
@@ -263,6 +277,13 @@ class Secp256k1(Benchmark):
         message = '576b2c99564392ed50e36c80654224953fdf8b5259528a1a4342c19be2da9b133c44429ac2be4d5dd588ec28e97015c34db80b7e8d8915e023c2501acd3eafe0'
         signature = b' S\xef\x14x\x06\xeb\xba\xc5\xf9\x0e\xac\x02pL\xbeLO;\x1d"$\xd7\xfc\x07\xfb\x9c\x08\xc5b^\x1e\xec\x19\xb1y\x11\np\xec(\xc9\xf3\xfd\x1f~\xe3\x99\xe8\xc98]\xd3\x951m${\x82\x0f[(\xa9\x90#'
         pubkey = ecda.verify_message(message, signature)
+        start = time.time()
+        duration_secs = 1
+        count = 0
+        while time.time() - start < duration_secs:
+            valid = ecda.verify_message(message, signature)
+            count += 1
+        print('%s Sec256k1.time_verify sigs verified within %s secs' % (count, duration_secs))
         signature = b' W\x83\xe5w\x8f\x07\x19EV\xba\x9d\x90\x9f\xfd \x81&\x0f\xa1L\xa00zK0\x08\xf78/\x9d\x0c\x06JFx[*Z\xfe\xd1F\x8d\x9f \x19\xad\xd9\xc9\xbf\xd3\x1br\xdd\x8e\x8ei\xf8\xd2\xf40\xad\xc6\x9c\xe5'
         message = 'foo'
         pubkey = ecda.verify_message(message, signature)
@@ -276,3 +297,5 @@ class Secp256k1(Benchmark):
 
 
 ECDSA().time_verify()
+Cryptography().time_verify()
+Secp256k1().time_verify()
