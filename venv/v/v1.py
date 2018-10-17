@@ -36,7 +36,7 @@ def importUtils():
 def utc2():
     return datetime.datetime.utcfromtimestamp(time.time()) #sqllite date -> datetime.datetime
 
-def getTxSpentMsgFieldIndex(field):
+def getTxMsgFieldIndex(field):
     try:
         res = [(i, v) for i, v in enumerate(TX_MSG_FIELDS) if v == field]
         #if res.__len__() == 0: #4 array
@@ -48,14 +48,14 @@ def getTxSpentMsgFieldIndex(field):
         return None
 
 def txi(field):
-    return getTxSpentMsgFieldIndex(field)
+    return getTxMsgFieldIndex(field)
 
 
 def msgi(msg, field):
     from utils import MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_CONTRACT, MSG_TYPE_BLOCK
     ##if type(msg) is dict or type(msg) is tuple and msg[-1][1] == MSG_TYPE_SPENT_TX or msg[-1][1] == MSG_TYPE_UNSPENT_TX or msg[1] == MSG_TYPE_SPENT_TX or msg[b'data'][txi("msg_type")] == b(MSG_TYPE_SPENT_TX):
     if type(msg) is tuple and "TX" in msg[1][0:3].upper():
-        return getTxSpentMsgFieldIndex(field)
+        return getTxMsgFieldIndex(field)
     else:
         return None
     #return txi(field)
@@ -78,6 +78,7 @@ def txdict2bin(dict_msg):
         return tx_bin
     except:
         return None
+
 
 def getUnspentAssetAmountFromParentTX(ptx):
     if genesis_tx[6][0] in genesis_tx[6]:  # outx_arr #TODO txi
@@ -103,7 +104,8 @@ def txbin2dict(bin_msg):
             #print('len keys&values', len(keys) == len(msg), len(keys), len(msg))
             for i, v in enumerate(keys):
                 #print(i, v, type(msg[i]))
-                msg_obj[keys[i]] = msg[i]
+                msg_obj[keys[i]] = to_s(msg[i]) if type(msg[i]) is bytes else msg[i]  #msg[i]
+                msg_obj[keys[i]] = [to_s(v) for v in msg[i]] if type(msg[i]) is list else msg[i]
             #print('msg_obj', msg_obj)
             if not validateTX(msg_obj) or validateTX(msg_obj) is None:
                 return None
@@ -197,7 +199,12 @@ def isTxExist(tx_hash):
     return False
 
 
+def isTrue(exp):
+    return exp is True
+
+
 def validateTX(tx_msg):
+    from utils import unpackb, MSG_TYPE_UNSPENT_TX
     #if not tx_msg['ver_num'].strip == '1' or tx[MSG_TYPE_TX]:
     #    return
     keys_types = {'ver_num': str, 'sigs': list, 'sig_type': str, 'pub_keys': list, 'msg_type': str, 'input_txs': list,
@@ -212,6 +219,8 @@ def validateTX(tx_msg):
     assert len([k for k in keys_types.keys() if k not in tx_msg.keys()]) == 0
     assert len([k for k in tx_msg.keys() if k not in keys_types.keys()]) == 0
     assert len(tx_msg['amounts']) == len(tx_msg['output_txs']) == len(tx_msg['to_addrs'])
+    assert True in [MSG_TYPE_UNSPENT_TX in tx for tx in tx_msg['output_txs']]
+    assert True in [MSG_TYPE_UNSPENT_TX in tx for tx in tx_msg['input_txs']]
     for k in keys_types.keys():
         value_type = type(tx_msg[k].decode('utf8')) if type(tx_msg[k]) is bytes else type(tx_msg[k])
         #print(k, value_type == keys_types[k], keys_types[k], value_type)
@@ -265,9 +274,11 @@ def insertServiceDbPending(rec, bin_msg_list):
                 continue
 
             assert len(unpacked_tx) > 0 #TODO keysAmountByVmsgType
+
             tx_hash = to_sha256(str(btx2ptx(unpacked_tx)))
             print('unpacked tx hash', tx_hash)
-
+            #dict_tx = txbin2dict(msg) #test
+            #validateTX(dict_tx)
             #if isTxExist(MSG_TYPE_SPENT_TX + msg_hash) or isTxExist(MSG_TYPE_UNSPENT_TX + msg_hash) or isTxExist(MSG_TYPE_PARENT_TX + msg_hash):
             if isTxExist(MSG_TYPE_PARENT_TX + tx_hash) or isTxExist(MSG_TYPE_UNSPENT_TX + tx_hash) or isTxExist(MSG_TYPE_SPENT_TX + msg_hash):
                 continue
