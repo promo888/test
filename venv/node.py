@@ -163,8 +163,8 @@ def start_node(pub_key):
 
 
 import shutil
-#shutil.rmtree("db")
-#shutil.rmtree("service_db")
+shutil.rmtree("db")
+shutil.rmtree("service_db")
 
 #TODO if main startNode(pbk) #19773ac41f111ea4ad5ef20ff1273aa0739f15661dafa3b4787961fd84bfb369
 start_node('71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16') #test2
@@ -176,7 +176,9 @@ print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'),
 
 #print('GENESIS TX exist: ', isDBvalue(b'TX-GENESIS', NODE_DB), 'TX-GENESIS')
 #print('GENESIS OUTPUT-TX exist: ', isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB), b(MSG_TYPE_UNSPENT_TX + 'GENESIS'))
-pmsg = getDB(b'TX_GENESIS', NODE_DB)
+pmsg = getDB(b(MSG_TYPE_PARENT_TX + '4d5d58100e58348947c2be39223470ee5b0e7f801e64f32845d4d67fad325337'), NODE_DB)#getDB(b'PTXGENESIS', NODE_DB) #getDB(b'TX_GENESIS_71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16', NODE_DB) #getDB(b'TX_GENESIS', NODE_DB)
+assert pmsg is not None
+#pmsg = getDB(b'TX_GENESIS_71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16', NODE_DB)
 # print('bmsg', pmsg)
 #umsg = mp.unpackb(pmsg)
 #print('GENESIS umsg', type(umsg), str(umsg))

@@ -79,16 +79,23 @@ def txdict2bin(dict_msg):
     except:
         return None
 
+def getUnspentAssetAmountFromParentTX(ptx):
+    if genesis_tx[6][0] in genesis_tx[6]:  # outx_arr #TODO txi
+        index = genesis_tx[6].index(genesis_tx[6][0])
+        return [genesis_tx[9], genesis_tx[10][0]]  # [0] - asset, [1] - amount
+    else:
+        return None
+
 
 def txbin2dict(bin_msg):
-    from utils import b, to_s, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, logging, exc_info, logp
+    from utils import b, to_s, to_sha256, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, logging, exc_info, logp
     #importUtils()
     #print('MSG_TYPE_TX', MSG_TYPE_TX)
     #msg_type_index = msgi(mp.unpackb(msg), "msg_type")
     try:
-        msg_type = mp.unpackb(bin_msg)[b'data'][1] #msgi(mp.unpackb(msg), "msg_type")
+        msg_type = mp.unpackb(bin_msg)[1] #msgi(mp.unpackb(msg), "msg_type") #mp.unpackb(bin_msg)[b'data'][1]
         if type(bin_msg) is bytearray:
-            msg = mp.unpackb(bin_msg)[b'data']
+            msg = mp.unpackb(bin_msg) #mp.unpackb(bin_msg)[b'data']
         if "TX" in to_s(msg_type).upper(): #msg_type == b(MSG_TYPE_SPENT_TX):
             msg_obj = {}
             keys = txf()
@@ -107,7 +114,7 @@ def txbin2dict(bin_msg):
 
 
 def msgf(msg):
-    from utils import b, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX
+    from utils import b, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_PARENT_TX
     #importUtils()
     #print('MSG_TYPE_TX', MSG_TYPE_TX)
     try:
@@ -153,10 +160,25 @@ def test(value=''):
     print('v1 test, value %s' % value)
 
 
+def btx2ptx(btx):
+    from utils import to_s
+    ptx = []
+    for k in btx:
+        if type(k) is list:
+            lst = []
+            for t in k:
+                if type(t) is float:
+                    lst.append(t)
+                else:
+                    lst.append(to_s(t))
+            ptx.append(lst)
+        else:
+            ptx.append(to_s(k))
+    return tuple(ptx)
+
 
 def verifyTX(tx_msg):
       from utils import getLogger, utc, logp, exc_info, SERVICE_DB, DB, getServiceDB, getDB
-
       pass
 
 def validateDateFormat(str):
@@ -189,6 +211,7 @@ def validateTX(tx_msg):
     assert len(keys_types) == len(tx_msg)
     assert len([k for k in keys_types.keys() if k not in tx_msg.keys()]) == 0
     assert len([k for k in tx_msg.keys() if k not in keys_types.keys()]) == 0
+    assert len(tx_msg['amounts']) == len(tx_msg['output_txs']) == len(tx_msg['to_addrs'])
     for k in keys_types.keys():
         value_type = type(tx_msg[k].decode('utf8')) if type(tx_msg[k]) is bytes else type(tx_msg[k])
         #print(k, value_type == keys_types[k], keys_types[k], value_type)
@@ -224,7 +247,7 @@ def validateTX(tx_msg):
 
 #from utils import SERVICE_DB, NODE_SERVICE_DB, exc_info, logging, logp, utc, packb, unpackb
 def insertServiceDbPending(rec, bin_msg_list):
-    from utils import RUNTIME_CONFIG, SERVICE_DB, exc_info, logging, logp, to_s, utc, packb, unpackb, to_sha256, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_UNSPENT_SPENT_TX
+    from utils import RUNTIME_CONFIG, SERVICE_DB, exc_info, logging, logp, to_s, utc, packb, unpackb, to_sha256, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_PARENT_TX, MSG_TYPE_UNSPENT_SPENT_TX
     #, MSG_TYPE_TX_ACCEPTED_AND_VALID, MSG_TYPE_TX_VERIFIED_AND_PENDING, MSG_TYPE_MULTI_SIG
     try:
         queries_list = ()
@@ -235,25 +258,30 @@ def insertServiceDbPending(rec, bin_msg_list):
             logp("Connected to ServiceDB", logging.INFO)
         SERVICE_DB.execute('BEGIN;')
         for msg in bin_msg_list:
-            version_msg = txbin2dict(msg)
-            #print('version_msg', version_msg)
+            unpacked_tx = tuple(unpackb(msg)) #txbin2dict(msg) #txbin2dict(msg)['ver_num']
+            #print('unpacked tx', unpacked_tx)
 
-            if version_msg is None: #Ommit the message if incorrect version or isNotValid version format
+            if unpacked_tx is None: #Ommit the message if incorrect version or isNotValid version format
                 continue
 
-            msg_hash = to_sha256(msg)
-            if isTxExist(MSG_TYPE_SPENT_TX + msg_hash) or isTxExist(MSG_TYPE_UNSPENT_TX + msg_hash):
+            assert len(unpacked_tx) > 0 #TODO keysAmountByVmsgType
+            tx_hash = to_sha256(str(btx2ptx(unpacked_tx)))
+            print('unpacked tx hash', tx_hash)
+
+            #if isTxExist(MSG_TYPE_SPENT_TX + msg_hash) or isTxExist(MSG_TYPE_UNSPENT_TX + msg_hash) or isTxExist(MSG_TYPE_PARENT_TX + msg_hash):
+            if isTxExist(MSG_TYPE_PARENT_TX + tx_hash) or isTxExist(MSG_TYPE_UNSPENT_TX + tx_hash) or isTxExist(MSG_TYPE_SPENT_TX + msg_hash):
                 continue
 
+            dict_tx = txbin2dict(msg)
             query = 'INSERT INTO v1_pending_tx' #_%s ' % RUNTIME_CONFIG['PUB_KEY']
             keys = ()
             values = ()
-            for k in version_msg.keys():
+            for k in dict_tx.keys():
                 keys += (k,)
-                values += (version_msg[k],)
+                values += (dict_tx[k],)
             keys += ('node_date', 'tx_hash')
             dti = utc() #TODO to thinkk change for ts (time.time() ,9bytes instead 27 + clients_ts  = ~40 bytes per record, 16b in LevelDB time.time()
-            values += (dti, MSG_TYPE_UNSPENT_TX + to_sha256(msg))
+            values += (dti, tx_hash) #MSG_TYPE_UNSPENT_TX + to_sha256(msg))
             #print('kv', keys, values)
             query += ' (' + ",".join([k for k in keys]) + ') values (' + ('?,' * len(keys))[:-1] + ")"
 
