@@ -4,7 +4,12 @@ import time
 from collections import OrderedDict
 import msgpack as mp, ast, pandas as pd
 import sqlite3, json
-
+#TODO from utils
+import datetime, time
+from fastecdsa import curve, ecdsa, keys
+from fastecdsa.keys import export_key, import_key
+from fastecdsa.curve import P256
+from fastecdsa.point import Point
 
 project_dir = os.path.dirname(os.path.abspath(__file__))
 imp = os.path.join(project_dir, "utils")
@@ -274,6 +279,17 @@ def insertServiceDbPending(rec, bin_msg_list):
                 continue
 
             assert len(unpacked_tx) > 0 #TODO keysAmountByVmsgType
+
+            #TODO to continue
+            #Test VerifySig
+            # test sigverify
+            dict_tx = txbin2dict(msg)
+            r, s =  dict_tx['sigs'][0].split(',')
+            x, y = dict_tx['pub_keys'][0].split(',')
+            public_key = Point(int(x), int(y))
+            valid = ecdsa.verify((int(r), int(s)), unpacked_tx, public_key, hashfunc=ecdsa.sha256)  # default curve=P256
+            print('valid ecdsa sig', valid)
+            ########
 
             tx_hash = to_sha256(str(btx2ptx(unpacked_tx)))
             print('unpacked tx hash', tx_hash)

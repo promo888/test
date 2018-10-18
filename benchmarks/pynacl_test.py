@@ -208,9 +208,11 @@ class TestVerifyKey:
 
 skey = SigningKey.generate()
 skey2 = SigningKey.generate()
+assert skey != skey2
 smessage = skey.sign(b"A Test Message!" * 1000)
 smessage2 = skey2.sign(b"A Test Message!" * 1000)
 signature, message = smessage.signature, b"A Forged Test Message!"
+
 
 import time
 start = time.time()
@@ -242,6 +244,23 @@ print(prk1, prk2, prk3)
 alices = PrivateKey.generate()
 alice_pbk = alices.public_key
 bobes = PrivateKey.generate()
-bob_pbk = alices.public_key
+bob_pbk = bobes.public_key
 print(alice_pbk, bob_pbk)
-assert alice_pbk != bob_pbk
+assert alice_pbk != bob_pbk #TODO negative
+
+import binascii
+from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, crypto_sign_seed_keypair as sign_seed
+pbk, prk = sign_seed(alices._private_key) # (b"\x00" * * crypto_sign_SEEDBYTES)
+msg = b'a' * 1000
+# smsg = sign(msg, alices._private_key)
+# verify(smsg, alice_pbk._public_key)
+smsg = sign(msg, prk)
+verify(smsg, pbk)
+pbk2, prk2 = sign_seed(alices._private_key)
+assert prk != prk2
+
+pbk, prk = sign_seed(alice_pbk._public_key)
+#smsg = sign(msg, pbk)
+#verify(smsg, binascii.hexlify(alice_pbk._public_key))
+print('alice_pbk', alice_pbk._public_key)
+print('pbk from alice seed', pbk)
