@@ -11,6 +11,14 @@ from fastecdsa.keys import export_key, import_key
 from fastecdsa.curve import P256
 from fastecdsa.point import Point
 
+from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
+from nacl.public import Box, PrivateKey, PublicKey
+from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, \
+    crypto_sign_seed_keypair as keys_from_seed
+
+#Random Private/Signing and Public/Verify keys
+#sk = SigningKey(nacl.utils.random(32))
+
 project_dir = os.path.dirname(os.path.abspath(__file__))
 imp = os.path.join(project_dir, "utils")
 import imp
@@ -119,7 +127,7 @@ def txbin2dict(bin_msg):
         logp("Error? ", exc_info(), logging.ERROR)
         return None
 
-
+#get msg field value
 def msgf(msg):
     from utils import b, MSG_TYPE_SPENT_TX, MSG_TYPE_UNSPENT_TX, MSG_TYPE_PARENT_TX
     #importUtils()
@@ -138,7 +146,7 @@ def msgf(msg):
     except:
         return None
 
-
+#get msg field value
 def msgv(msg, field):
     try:
         if msg[1] == MSG_TYPE_TX:
@@ -182,6 +190,25 @@ def btx2ptx(btx):
         else:
             ptx.append(to_s(k))
     return tuple(ptx)
+
+
+def setTX(ver_num, msg_type, sig, sig_type, pub_key, input_txs,
+          output_txs, from_addr, to_addrs, asset_type, amounts, ts):
+    tx = ()
+    #genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
+    tx += (ver_num)
+    tx += (msg_type)
+    tx += (sig)
+    tx += (sig_type)
+    tx += (pub_key)
+    tx += (input_txs)
+    tx += (output_txs)
+    tx += (from_addr)
+    tx += (to_addrs)
+    tx += (asset_type)
+    tx += (amounts)
+    tx += (ts)
+    return validateTX(tx)
 
 
 def verifyTX(tx_msg):
