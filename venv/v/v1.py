@@ -192,23 +192,27 @@ def btx2ptx(btx):
     return tuple(ptx)
 
 
-def setTX(ver_num, msg_type, sig, sig_type, pub_key, input_txs,
-          output_txs, from_addr, to_addrs, asset_type, amounts, ts):
-    tx = ()
-    #genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
-    tx += (ver_num)
-    tx += (msg_type)
-    tx += (sig)
-    tx += (sig_type)
-    tx += (pub_key)
-    tx += (input_txs)
-    tx += (output_txs)
-    tx += (from_addr)
-    tx += (to_addrs)
-    tx += (asset_type)
-    tx += (amounts)
-    tx += (ts)
-    return validateTX(tx)
+def ptx2btx(ptx): #TODO
+    pass
+
+
+#
+# def setTX(ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_key):
+#     tx = ()
+#     #genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
+#     tx += (ver_num,)
+#     tx += (msg_type,)
+#     tx += (input_txs,)
+#     tx += (output_txs,)
+#     tx += (from_addr,)
+#     tx += (to_addrs,)
+#     tx += (asset_type,)
+#     tx += (amounts,)
+#     tx += (ts,)
+#     tx += (sig_type,)
+#     tx += (sig,)
+#     tx += (pub_key,)
+#     return validateTX(tx)
 
 
 def verifyTX(tx_msg):

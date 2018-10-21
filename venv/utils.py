@@ -11,7 +11,7 @@ from fastecdsa import curve, ecdsa, keys
 from fastecdsa.keys import export_key, import_key
 from fastecdsa.curve import P256
 from fastecdsa.point import Point
-from Crypto.Hash import SHA256
+from Crypto.Hash import SHA256, HMAC, RIPEMD, MD5
 from msgpack import packb, unpackb
 import pandas
 import leveldb
@@ -19,6 +19,12 @@ import sqlite3
 from sqlobject import *
 #import v
 from v import *
+
+from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
+from nacl.public import Box, PrivateKey, PublicKey
+from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, \
+    crypto_sign_seed_keypair as keys_from_seed
+from nacl.signing import SigningKey, VerifyKey
 
 
 #pip install --proxy http://lab:Welcome1@10.72.0.50:8080 matplotlib
@@ -83,16 +89,13 @@ def setNodeDb(pub_key):
 def getNodeId():
     return NODE_ID
 
-#TODO remove PUB_KEY ->used 4 testing
+#TODO remove PUB_KEY ->used 4 testing + move to v1
 def initServiceDB(pub_key=''):
     global SERVICE_DB
     sql_list = []
     #Node section
-    sql_node_spending_tx = '''CREATE TABLE if not exists pending_tx
-                           (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
-                            sigs TEXT NOT NULL,
-                            sig_type TEXT NOT NULL,
-                            pub_keys TEXT NOT NULL,                        
+    sql_v1_node_spending_tx = '''CREATE TABLE if not exists v1_pending_tx
+                           (id INTEGER PRIMARY KEY AUTOINCREMENT,
                             ver_num  TEXT  NOT NULL,
                             msg_type TEXT NOT NULL,
                             input_txs TEXT NOT NULL,   
@@ -104,9 +107,27 @@ def initServiceDB(pub_key=''):
                             ts TEXT NOT NULL,                        
                             node_verified INTEGER DEFAULT 0,
                             node_date date NOT NULL,
-                            tx_hash TEXT NOT NULL
+                            tx_hash TEXT NOT NULL,
+                            sigs TEXT NOT NULL,
+                            sig_type BLOB NOT NULL,
+                            pub_keys BLOB NOT NULL
                            );
          ''' #% pub_key
+
+    # sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
+    #                            (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    #                             priv_key BLOB UNIQUE NOT NULL,
+    #                             pub_key BLOB UNIQUE NOT NULL,
+    #                             seed BLOB UNIQUE NOT NULL );'''
+    sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
+                                   (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
+                                    priv_key BLOB UNIQUE NOT NULL,
+                                    pub_key BLOB UNIQUE NOT NULL,
+                                    seed BLOB UNIQUE NOT NULL ,
+                                    pub_addr TEXT UNIQUE NOT NULL,
+                                    nick UNIQUE TEXT DEFAULT NULL
+                               );
+    '''
 
     #Wallet section
     sql_wallet_spending_tx = '''CREATE TABLE if not exists spending_tx
@@ -138,7 +159,9 @@ def initServiceDB(pub_key=''):
                                     block_hash TEXT DEFAULT NULL                                   
                                    );
                  '''  #% pub_key
-    sql_list.append(sql_node_spending_tx) #ToDo add spent/unspent
+    sql_list.append(sql_v1_node_spending_tx) #ToDo add spent/unspent
+    sql_list.append(sql_v1_test_accounts)
+
     sql_list.append(sql_wallet_spending_tx)
     sql_list.append(sql_wallet_spent_unspent_txs) #ToDo update from response/confirmations ?
     try:
@@ -220,6 +243,17 @@ def insertServiceDbPending(bin_msg_list):
     #     logp(err_msg, logging.ERROR)
     #     return None
     return v_msg_list('insertServiceDbPending', bin_msg_list)
+
+def getServiceDBconnection():
+    global SERVICE_DB
+    try:
+        if SERVICE_DB is None:
+            SERVICE_DB = sqlite3.connect(NODE_SERVICE_DB, isolation_level=None)
+        return SERVICE_DB
+    except Exception as ex:
+        err_msg = 'Exception on connect to SqlLite SERVICE_DB: %s, %s' % (ex, exc_info())
+        logp(err_msg, logging.ERROR)
+        return None
 
 
 def getServiceDB(sql):
@@ -384,7 +418,117 @@ def vvv(msg, version_number, msg_type, field):
         return msg[-1][field_index] or None
 
 
+#TODO move to v1 when ready
+
+def setTX(ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_key):
+    tx = ()
+    #genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
+    tx += (ver_num,)
+    tx += (msg_type,)
+    tx += (input_txs,)
+    tx += (output_txs,)
+    tx += (from_addr,)
+    tx += (to_addrs,)
+    tx += (asset_type,)
+    tx += (amounts,)
+    tx += (ts,)
+    tx += (sig_type,)
+    tx += (sig,)
+    tx += (pub_key,)
+    return validateTX(tx)
+
+
+
+
+from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
+from nacl.public import Box, PrivateKey, PublicKey
+from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, \
+    crypto_sign_seed_keypair as keys_from_seed
+
+
+def getKeysFromRandomSeed():
+    '''Random Private/Signing and Public/Verify keys'''
+    try:
+        sk = SigningKey(nacl.utils.random(32))
+        return sk
+    except:
+        return None
+
+
+def getKeysFromSeed(str_seed):
+    '''Return 25519 Curve pub_key, priv_key nacl objects'''
+    try:
+        bin_str = bytes(str_seed.ljust(32), 'utf8')
+        #pub, priv = keys_from_seed(bin_str)
+        sk = priv_key = SigningKey(bin_str)
+        vk = pub_key = VerifyKey(sk.verify_key._key)
+        return sk, vk
+    except:
+        return None
+
+
+def persistKeysInServiceDB(bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''): #TODO 4test only - to remove
+    ##sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed) values (?,?,?)" #,seed,nick,%s,%s)" % (pub_addr_str, nick)
+    sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,seed,nick) values (?,?,?,?,?)"
+    con = getServiceDBconnection()
+    with con:
+        cur = con.cursor()
+        ##cur.execute(sql, (sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed)))
+        cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed), pub_addr_str, nick])
+        con.commit()
+
+
+def getVkFromPubKey():
+    '''Return verify_key from pub_key'''
+    pass
+
+
+def getSkFromPrivKey():
+    '''Return  signing_key from priv_key'''
+    pass
+
+
+def sign(msg, SignKey):
+    ''' Return Curve 25519 Signature - msg hexdigest'''
+    try:
+        signed_msg = SignKey.sign(msg)
+        return signed_msg
+    except:
+        return None
+
+
+def verify(signed_msg, VerifyingKey):
+    '''Return True if msg verified, otherwise false'''
+    try:
+        verified = VerifyingKey.verify(signed_msg)
+        return True #verified
+    except:
+        return False
+
+
+def getPubAddr(VK):
+    '''Return HMAC hash from pub_key/verify_key'''
+    try:
+        pub_addr = HMAC.new(VK._key).hexdigest()
+        return pub_addr
+    except:
+        return None
+
+###
+
+
 def insertGenesis(): #TODO onStartNode
+
+    SK, VK = getKeysFromSeed('Bob')
+    msg = b'msg'
+    signed_msg = sign(msg, SK)
+    verified_sig = verify(signed_msg, VK)
+    pub_addr = getPubAddr(VK)
+    print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr)) #VK == VerifyKey(VK._key)
+    persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
+    rec = getServiceDB("select * from v1_test_accounts where id=1")
+    assert VerifyKey(rec[0][2]) == VK
+
 
     if not isDBvalue(b(MSG_TYPE_SPEND_TX + 'GENESIS'), NODE_DB): # and not isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB):
         #txs_db = leveldb.LevelDB(TXS_DB)
@@ -408,6 +552,10 @@ def insertGenesis(): #TODO onStartNode
         print('Genesis TX Hash: ', tx_hash)  # TODO validation
         assert (tx_hash == genesis_tx_hash)
         print('Genesis Msg Hash - Output TX: ', to_sha256(str(genesis_msg))) #TODO validation
+
+        #from v1 import setTX TOdo
+        setTX(1, MSG_TYPE_SPEND_TX, ['TX_GENESIS'], ['TX_GENESIS'], from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_key)
+
         #verifyTx(genesis_tx)
         unspent_tx = msg_hash = to_sha256(str(genesis_tx))
         #unspent_tx = msg_hash = to_sha256(str(genesis_msg))
@@ -641,9 +789,6 @@ def add_config_key_value():  # should be approved by nodes quorum
 def save_config_as_binary():
     pass
 
-
-def save_config_as_binary():
-    pass
 
 
 def load_config_as_binary():
