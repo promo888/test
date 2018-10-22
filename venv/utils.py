@@ -94,25 +94,27 @@ def initServiceDB(pub_key=''):
     global SERVICE_DB
     sql_list = []
     #Node section
-    sql_v1_node_spending_tx = '''CREATE TABLE if not exists v1_pending_tx
-                           (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            ver_num  TEXT  NOT NULL,
-                            msg_type TEXT NOT NULL,
-                            input_txs TEXT NOT NULL,   
-                            output_txs TEXT NOT NULL,
-                            from_addr TEXT NOT NULL,                     
-                            to_addr  TEXT NULL,
-                            asset_type TEXT NOT NULL,
-                            amount REAL NOT NULL,
-                            ts TEXT NOT NULL,                        
-                            node_verified INTEGER DEFAULT 0,
-                            node_date date NOT NULL,
-                            tx_hash TEXT NOT NULL,
-                            sigs TEXT NOT NULL,
-                            sig_type BLOB NOT NULL,
-                            pub_keys BLOB NOT NULL
-                           );
-         ''' #% pub_key
+    sql_v1_node_spending_tx = '''
+        CREATE TABLE `v1_pending_tx` (
+        'id'	INTEGER,
+        'ver_num'	TEXT NOT NULL,
+        'msg_type'	TEXT NOT NULL,
+        'input_txs'	TEXT NOT NULL,
+        'output_txs'	TEXT NOT NULL,
+        'from_addr'	TEXT NOT NULL,
+        'to_addr'	TEXT,
+        'asset_type'	TEXT NOT NULL,
+        'amount'	REAL NOT NULL,
+        'ts'	TEXT NOT NULL,
+        'node_verified'	INTEGER DEFAULT 0,
+        'node_date'	date NOT NULL,
+        'tx_hash'	TEXT NOT NULL UNIQUE,
+        'sigs'	TEXT NOT NULL,
+        'sig_type'	TEXT NOT NULL,
+        'pub_keys'	BLOB NOT NULL,
+        PRIMARY KEY(tx_hash)
+    );
+    '''
 
     # sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
     #                            (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,13 +122,14 @@ def initServiceDB(pub_key=''):
     #                             pub_key BLOB UNIQUE NOT NULL,
     #                             seed BLOB UNIQUE NOT NULL );'''
     sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
-                                   (id INTEGER PRIMARY KEY AUTOINCREMENT,                       
-                                    priv_key BLOB UNIQUE NOT NULL,
-                                    pub_key BLOB UNIQUE NOT NULL,
+                                   (                     
+                                    priv_key BLOB NOT NULL UNIQUE,
+                                    pub_key BLOB NOT NULL UNIQUE,
                                     seed BLOB UNIQUE NOT NULL ,
-                                    pub_addr TEXT UNIQUE NOT NULL,
-                                    nick UNIQUE TEXT DEFAULT NULL
-                               );
+                                    pub_addr TEXT NOT NULL UNIQUE,
+                                    nick TEXT DEFAULT NULL UNIQUE,
+                                   PRIMARY KEY(pub_addr) 
+                                   );
     '''
 
     #Wallet section
@@ -420,7 +423,7 @@ def vvv(msg, version_number, msg_type, field):
 
 #TODO move to v1 when ready
 
-def setTX(ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_key):
+def setTX(ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_keys):
     tx = ()
     #genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
     tx += (ver_num,)
@@ -434,7 +437,7 @@ def setTX(ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_t
     tx += (ts,)
     tx += (sig_type,)
     tx += (sig,)
-    tx += (pub_key,)
+    tx += (pub_keys,)
     return validateTX(tx)
 
 
@@ -455,12 +458,15 @@ def getKeysFromRandomSeed():
         return None
 
 
-def getKeysFromSeed(str_seed):
+def getKeysFromSeed(seed):
     '''Return 25519 Curve pub_key, priv_key nacl objects'''
     try:
-        bin_str = bytes(str_seed.ljust(32), 'utf8')
+        if isinstance(seed, str):
+            seed = bytes(seed.ljust(32), 'utf8')
+        elif not isinstance(seed, bytes):
+            seed = packb(seed)
         #pub, priv = keys_from_seed(bin_str)
-        sk = priv_key = SigningKey(bin_str)
+        sk = priv_key = SigningKey(seed)
         vk = pub_key = VerifyKey(sk.verify_key._key)
         return sk, vk
     except:
@@ -469,7 +475,7 @@ def getKeysFromSeed(str_seed):
 
 def persistKeysInServiceDB(bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''): #TODO 4test only - to remove
     ##sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed) values (?,?,?)" #,seed,nick,%s,%s)" % (pub_addr_str, nick)
-    sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,seed,nick) values (?,?,?,?,?)"
+    sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
     con = getServiceDBconnection()
     with con:
         cur = con.cursor()
@@ -526,8 +532,8 @@ def insertGenesis(): #TODO onStartNode
     pub_addr = getPubAddr(VK)
     print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr)) #VK == VerifyKey(VK._key)
     persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
-    rec = getServiceDB("select * from v1_test_accounts where id=1")
-    assert VerifyKey(rec[0][2]) == VK
+    rec = getServiceDB("select * from v1_test_accounts where pub_addr='%s'" % pub_addr)
+    assert VerifyKey(rec[0][1]) == VK
 
 
     if not isDBvalue(b(MSG_TYPE_SPEND_TX + 'GENESIS'), NODE_DB): # and not isDBvalue(b(MSG_TYPE_UNSPENT_TX + 'GENESIS'), NODE_DB):

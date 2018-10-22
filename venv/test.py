@@ -10,6 +10,22 @@
 #/home/igorb/PycharmProjects/test
 import sys, os, multiprocessing, subprocess, asyncio, aiohttp
 import leveldb
+
+
+#from v.v1 import Version
+# Version.p('static print')
+from v import *
+v1.Tools.p('static print')
+v1.Tools().p('instance print')
+getattr(v1.Tools, 'p')('PrintFromString')
+cls = globals()['v1']
+func = getattr(cls.Tools, 'p')
+func('Class Static Print from String')
+func = getattr(cls.Tools, 'pp')
+func(func, 'Class Instance Print from String')
+print(v1.Tools().TX_MSG_FIELDS)
+
+
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 print('ROOT_DIR', ROOT_DIR)
 TXS_DB = './../%s/TXS' % ROOT_DIR
@@ -299,3 +315,4 @@ class Secp256k1(Benchmark):
 ECDSA().time_verify()
 Cryptography().time_verify()
 Secp256k1().time_verify()
+
