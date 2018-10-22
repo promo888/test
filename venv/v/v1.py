@@ -66,36 +66,36 @@ class Config():
    pass
 
 
-class Logger(object):
+class Logger():
     def __init__(self):
-        pass
+        self.Logger = Logger()
 
-    @staticmethod
-    def utc():
+
+    def utc(self):
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
 
-    @staticmethod
-    def exc_info():
+
+    def exc_info(self):
         exc_type, exc_value, exc_tb = sys.exc_info()
         return '%s %s' % (os.path.basename(exc_tb.tb_frame.f_code.co_filename), exc_tb.tb_lineno)
 
-    @staticmethod
-    def getLogger(logFile='node'):
-        #global LOGGER
-        if Tools().LOGGER is None:
-            log_file = "logs/%s.log" % logFile
-            Tools().LOGGER = create_rotating_log(log_file, "logger")
-        return Tools.LOGGER
 
-    @staticmethod
+    def getLogger(self, logFile='node'):
+        #global LOGGER
+        if self.LOGGER is None:
+            log_file = "logs/%s.log" % logFile
+            self.LOGGER = create_rotating_log(log_file, "logger")
+        return self.LOGGER
+
+
     def logp(msg, mode, console=True):
         msg = '%s %s' % (Logger.utc(), msg)
         if mode == logging.ERROR:
-            Logger.getLogger().error(msg)
+            self.getLogger().error(msg)
         elif mode == logging.WARNING:
-            Logger.getLogger().warning(msg)
+            self.getLogger().warning(msg)
         else:
-            Logger.getLogger().info(msg)
+            self.getLogger().info(msg)
         if console:
             print(msg)
 
@@ -217,13 +217,19 @@ class Block(Logger):
     def persistBlock():
         pass
 
-class Db(Logger):
-    def __init__(self):
-        self.SERVICE_DB = None
 
+class ServiceDb():
+    def getServiceDB(self):
+        try:
+            if self.SERVICE_DB is None:
+                self.SERVICE_DB = sqlite3.connect(Tools().NODE_SERVICE_DB, isolation_level=None) #TODO ConfigMap
+            #return SERVICE_DB
+        except Exception as ex:
+            err_msg = 'Exception on get serviceDbConnection to SqlLite NODE_SERVICE_DB: %s, %s' % (ex, Logger.exc_info())
+            Logger.logp(err_msg, logging.ERROR)
+            return None
 
-    @staticmethod
-    def getServiceDB(sql):
+    def queryServiceDB(sql):
         SERVICE_DB = None
         try:
             if SERVICE_DB is None:
@@ -233,6 +239,15 @@ class Db(Logger):
             err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, ex, Logger.exc_info())
             Logger.logp(err_msg, logging.ERROR)
             return None
+
+
+class Db():
+    # def __init__(self):
+    #     self.SERVICE_DB = None
+    pass
+
+
+
 
 
 class Node():
@@ -256,14 +271,14 @@ class Agent():
 class Invoke():
     pass
 
-class Tools(Structure, Config, Crypto, Network, Db, Transaction, Block, Contract, Wallet, Node, Ico, Agent, Exchange, Shop, Invoke):
+class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Node, Ico, Agent, Exchange, Shop, Invoke):
     def __init__(self):
         self.LOGGER = None
-        self.DB = None
-        self.SERVICE_DB = None
         self.ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
         self.NODE_DB = '%s/db/DATA' % self.ROOT_DIR
         self.NODE_SERVICE_DB = '%s/service_db/DATA/service.db' % self.ROOT_DIR
+        self.DB = None
+        self.SERVICE_DB = ServiceDb()
 
     def utc():
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
