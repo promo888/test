@@ -13,6 +13,68 @@ from nacl.signing import SigningKey, VerifyKey
 from Crypto.Hash import SHA256, HMAC, RIPEMD
 
 
+
+class Test():
+
+    def persistKeysInServiceDB(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
+        sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
+                                           (                     
+                                            priv_key BLOB NOT NULL UNIQUE,
+                                            pub_key BLOB NOT NULL UNIQUE,
+                                            seed BLOB UNIQUE NOT NULL ,
+                                            pub_addr TEXT NOT NULL UNIQUE,
+                                            nick TEXT DEFAULT NULL UNIQUE,
+                                           PRIMARY KEY(pub_addr) 
+                                           );'''
+
+        sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
+        con = ServiceDb().getServiceDB()
+        try:
+            with con:
+                cur = con.cursor()
+                con.execute(sql_v1_test_accounts)
+                cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed), pub_addr_str, nick])
+                con.commit()
+        except Exception as ex:
+            logger = Logger()
+            err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+            logger.logp(err_msg, logging.ERROR)
+            return None
+
+
+        def persistPendingTX(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
+            sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
+                                               (                     
+                                                priv_key BLOB NOT NULL UNIQUE,
+                                                pub_key BLOB NOT NULL UNIQUE,
+                                                seed BLOB UNIQUE NOT NULL ,
+                                                pub_addr TEXT NOT NULL UNIQUE,
+                                                nick TEXT DEFAULT NULL UNIQUE,
+                                               PRIMARY KEY(pub_addr) 
+                                               );'''
+
+            sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
+            con = ServiceDb().getServiceDB()
+            try:
+                with con:
+                    cur = con.cursor()
+                    con.execute(sql_v1_test_accounts)
+                    cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed),
+                                      pub_addr_str, nick])
+                    con.commit()
+            except Exception as ex:
+                logger = Logger()
+                err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+                logger.logp(err_msg, logging.ERROR)
+                return None
+
+
+
+class Helper:
+    #def __init__(self):
+    pass
+
+
 class TransactionType:
     UNSPENT_TX = b'\x00'
     SPENT_TX = b'\x01'
@@ -63,32 +125,72 @@ class Structure(object):
         self.version = "1"
 
 class Config():
-   pass
+    def __init__(self):
+        self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+        self.NODE_SERVICE_DB = '%s/../service_db/DATA/service.db' % self.ROOT_DIR
+        self.NODE_DB = '%s/../db/DATA' % self.ROOT_DIR
+        self.LOGS = '%s/../logs' % self.ROOT_DIR
+
 
 
 class Logger():
-    def __init__(self):
-        self.Logger = Logger()
 
 
-    def utc(self):
+    def create_rotating_log(self, path, label="Rotating Log"):
+        """
+        Creates a rotating log
+        """
+        self.logger = logging.getLogger(label)
+        self.logger.setLevel(logging.INFO)
+
+        # add a rotating handler
+        self.handler = RotatingFileHandler(path, maxBytes=10000000, backupCount=10000)
+        self.logger.addHandler(self.handler)
+        return self.logger
+
+
+    def setup_logger(self, logger_name, log_file, level=logging.INFO):
+        self.log_setup = logging.getLogger(logger_name)
+        self.formatter = logging.Formatter('%(levelname)s: %(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+        self.fileHandler = logging.FileHandler(log_file, mode='a')
+        self.fileHandler.setFormatter(formatter)
+        self.streamHandler = logging.StreamHandler()
+        self.streamHandler.setFormatter(formatter)
+        self.log_setup.setLevel(level)
+        self.log_setup.addHandler(fileHandler)
+        self.log_setup.addHandler(streamHandler)
+
+    def logger(self, msg, level, logfile):
+        if self.logfile == 'logger2': self.log = logging.getLogger('logger2')
+        if self.logfile == 'logger3': self.log = logging.getLogger('logger3')
+        if self.level == 'info': self.log.info(msg)
+        if self.level == 'warning': self.log.warning(msg)
+        if self.level == 'error': self.log.error(msg)
+
+
+    def __init__(self, log_file='node'):
+        self.log_file = None
+        self.Logger = None
+        self.getLogger(log_file)
+
+
+    def utc():
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
 
-
-    def exc_info(self):
+    def exc_info():
         exc_type, exc_value, exc_tb = sys.exc_info()
         return '%s %s' % (os.path.basename(exc_tb.tb_frame.f_code.co_filename), exc_tb.tb_lineno)
 
 
+
     def getLogger(self, logFile='node'):
-        #global LOGGER
-        if self.LOGGER is None:
-            log_file = "logs/%s.log" % logFile
-            self.LOGGER = create_rotating_log(log_file, "logger")
-        return self.LOGGER
+        if self.Logger is None:
+            self.log_file = "%s/%s.log" % (Config().LOGS, logFile)
+            self.Logger = self.create_rotating_log(self.log_file, "logger")
+        return self.Logger
 
 
-    def logp(msg, mode, console=True):
+    def logp(self, msg, mode, console=True):
         msg = '%s %s' % (Logger.utc(), msg)
         if mode == logging.ERROR:
             self.getLogger().error(msg)
@@ -100,10 +202,12 @@ class Logger():
             print(msg)
 
 
+
+
 class Network():
    pass
 
-class Crypto():
+class Crypto(Logger):
     def getKeysFromRandomSeed(self):
         '''Random Private/Signing and Public/Verify keys'''
         try:
@@ -131,7 +235,10 @@ class Crypto():
         try:
             signed_msg = SignKey.sign(msg)
             return signed_msg
-        except:
+        except Exception as ex:
+            logger = Logger()
+            err_msg = 'Exception on sign msg: %s \n%s, %s' % (msg, Logger.exc_info(), ex)
+            logger.logp(err_msg, logging.ERROR)
             return None
 
     def verify(self, signed_msg, VerifyingKey):
@@ -158,10 +265,23 @@ class Transaction(Logger):
                               'to_addrs': list, 'asset_type': str, 'amounts': list, 'ts': datetime,
                               'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
 
-    def setTX():
-        pass
+    def setTX(self, ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_keys):
+        tx = ()
+        tx += (ver_num,)
+        tx += (msg_type,)
+        tx += (input_txs,)
+        tx += (output_txs,)
+        tx += (from_addr,)
+        tx += (to_addrs,)
+        tx += (asset_type,)
+        tx += (amounts,)
+        tx += (ts,)
+        tx += (sig_type,)
+        tx += (sig,)
+        tx += (pub_keys,)
+        return tx#validateTX(tx)
 
-    def validateTX():
+    def validateTX(self, tx):
         pass
 
     def signTX():
@@ -218,33 +338,59 @@ class Block(Logger):
         pass
 
 
-class ServiceDb():
+class ServiceDb(Logger):
+    def __init__(self):
+        # self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+        # self.NODE_SERVICE_DB = '%s/../service_db/DATA/service.db' % self.ROOT_DIR
+        # self.NODE_DB = '%s/../db/DATA' % self.ROOT_DIR
+        # self.LOGS = '%s/../logs' % self.ROOT_DIR
+        config = Config()
+        #self.Logger = self.#Logger()
+        self.ROOT_DIR = config.ROOT_DIR
+        self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
+        self.NODE_DB = config.NODE_DB
+        self.LOGS = config.LOGS
+        print('NODE_DB, NODE_SERVICE_DB', self.NODE_DB, self.NODE_SERVICE_DB)
+        self.createNodeDbIfNotExist()
+        self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None)
+
+
+    def createNodeDbIfNotExist(self):
+        dirs = [self.NODE_DB,  self.NODE_SERVICE_DB, self.LOGS]
+        for folder in dirs:
+            if not os.path.exists(folder):
+                if folder == self.NODE_SERVICE_DB:
+                    folder = folder.replace('/service.db', '')
+                os.makedirs(folder)
+
+
     def getServiceDB(self):
         try:
             if self.SERVICE_DB is None:
-                self.SERVICE_DB = sqlite3.connect(Tools().NODE_SERVICE_DB, isolation_level=None) #TODO ConfigMap
-            #return SERVICE_DB
+                self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None) #TODO ConfigMap
+            return self.SERVICE_DB
         except Exception as ex:
-            err_msg = 'Exception on get serviceDbConnection to SqlLite NODE_SERVICE_DB: %s, %s' % (ex, Logger.exc_info())
-            Logger.logp(err_msg, logging.ERROR)
+            err_msg = 'Exception on get serviceDbConnection to SqlLite NODE_SERVICE_DB: %s, %s' % (Logger.exc_info(), ex)
+            self.logger.logp(err_msg, logging.ERROR)
             return None
 
-    def queryServiceDB(sql):
-        SERVICE_DB = None
+
+    def queryServiceDB(self, sql):
         try:
-            if SERVICE_DB is None:
-                SERVICE_DB = sqlite3.connect(Tools().NODE_SERVICE_DB, isolation_level=None) #TODO ConfigMap
-            return SERVICE_DB.execute(sql).fetchall()
+            if self.SERVICE_DB is None:
+                self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None) #TODO ConfigMap
+            return self.SERVICE_DB.execute(sql).fetchall()
         except Exception as ex:
-            err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, ex, Logger.exc_info())
-            Logger.logp(err_msg, logging.ERROR)
+            err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+            self.logger.logp(err_msg, logging.ERROR)
             return None
 
 
 class Db():
-    # def __init__(self):
-    #     self.SERVICE_DB = None
-    pass
+    def __init__(self):
+        # self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+        # self.NODE_DB = '%s/db/DATA' % ROOT_DIR
+        pass
 
 
 
@@ -273,12 +419,14 @@ class Invoke():
 
 class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Node, Ico, Agent, Exchange, Shop, Invoke):
     def __init__(self):
-        self.LOGGER = None
-        self.ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
-        self.NODE_DB = '%s/db/DATA' % self.ROOT_DIR
-        self.NODE_SERVICE_DB = '%s/service_db/DATA/service.db' % self.ROOT_DIR
-        self.DB = None
+        config = Config()
+        #self.Logger = Logger() #TODO TO remove Doubles
+        self.ROOT_DIR = config.ROOT_DIR
+        self.NODE_DB = config.NODE_DB
+        self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
+        self.DB = Db()
         self.SERVICE_DB = ServiceDb()
+        self.Transaction = Transaction()
 
     def utc():
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
@@ -308,12 +456,21 @@ if __name__ == "__main__":
     Tools.p("v1.Tools running as a stand-alone script")
     #print('Tools version %s' % Tools().version)
     tools = Tools()
+    test = Test()
     SK, VK = tools.getKeysFromSeed('Bob')
     msg = b'msg'
     signed_msg = tools.sign(msg, SK)
     verified_sig = tools.verify(signed_msg, VK)
     pub_addr = tools.getPubAddr(VK)
     print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
-    #persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
-    rec = tools.getServiceDB("select * from v1_test_accounts where pub_addr='%s'" % pub_addr)
+    #test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
+    query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
+    rec = tools.SERVICE_DB.queryServiceDB(query)
+    # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
+    tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], ['TX_GENESIS_%s' % pub_addr] , 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
+    #from msgpack import packb, unpackb
+    signed_msg = tools.sign(str(tx[:-2]).encode(), SK)
+    bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
+    assert tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
     assert VerifyKey(rec[0][1]) == VK
+   # tools.logp('Finished', logging.INFO)
