@@ -63,7 +63,7 @@ class Test():
                                       pub_addr_str, nick])
                     con.commit()
             except Exception as ex:
-                logger = Logger()
+                logger = Logger('Test')
                 err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
                 logger.logp(err_msg, logging.ERROR)
                 return None
@@ -188,7 +188,7 @@ class Logger():
         if self.level == 'error': self.log.error(msg)
 
 
-    def __init__(self, log_file='node'):
+    def __init__(self, log_file='Node'):
         self.log_file = None
         self.Logger = None
         self.getLogger(log_file)
@@ -203,7 +203,7 @@ class Logger():
 
 
 
-    def getLogger(self, logFile='node'):
+    def getLogger(self, logFile='Node'):
         if self.Logger is None:
             self.log_file = "%s/%s.log" % (Config().LOGS, logFile)
             self.Logger = self.create_rotating_log(self.log_file, "logger")
@@ -225,9 +225,23 @@ class Logger():
 
 
 class Network():
-   pass
+   import time, socket, zmq, asyncio
+   def __init__(self):
+       self.logger = Logger('Network')
+
+   def sendMsgZmqReq(self, bin_msg, host, port):
+       context = zmq.Context()
+       socket = context.socket(zmq.REQ)
+       socket.connect("tcp://%s:%s" % (host, port))
+       socket.send(bin_msg)
+       response = socket.recv_string()
+       print('ZMQ Rep - response')
+
 
 class Crypto(Logger):
+    def __init__(self):
+        self.logger = Logger('Crypto')
+
     def getKeysFromRandomSeed(self):
         '''Random Private/Signing and Public/Verify keys'''
         try:
@@ -256,9 +270,9 @@ class Crypto(Logger):
             signed_msg = SignKey.sign(msg)
             return signed_msg
         except Exception as ex:
-            logger = Logger()
+
             err_msg = 'Exception on sign msg: %s \n%s, %s' % (msg, Logger.exc_info(), ex)
-            logger.logp(err_msg, logging.ERROR)
+            self.logger.logp(err_msg, logging.ERROR)
             return None
 
     def verify(self, signed_msg, VerifyingKey):
@@ -289,6 +303,7 @@ class Crypto(Logger):
 
 class Transaction(Logger):
     def __init__(self):
+        self.logger = Logger('Transaction')
         self.version = "1"
         self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, 'output_txs': list, 'from_addr': str,
                               'to_addrs': list, 'asset_type': str, 'amounts': list, 'ts': datetime,
@@ -308,7 +323,8 @@ class Transaction(Logger):
         tx += (sig_type,)
         tx += (sig,)
         tx += (pub_keys,)
-        return tx#validateTX(tx)
+        return tx #validateTX(tx)
+
 
     def validateTX(self, tx):
         pass
@@ -374,7 +390,7 @@ class ServiceDb(Logger):
         # self.NODE_DB = '%s/../db/DATA' % self.ROOT_DIR
         # self.LOGS = '%s/../logs' % self.ROOT_DIR
         config = Config()
-        #self.Logger = self.#Logger()
+        self.logger = Logger('ServiceDb')
         self.ROOT_DIR = config.ROOT_DIR
         self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
         self.NODE_DB = config.NODE_DB
@@ -417,7 +433,7 @@ class ServiceDb(Logger):
 
 class Db():
     def __init__(self):
-        self.Logger = Logger('Db')
+        self.logger = Logger('Db')
         self.LEVEL_DB = None
 
 
@@ -430,7 +446,7 @@ class Db():
         except Exception as ex:
             err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
             bin_key, bin_value, exc_info(), ex)
-            self.Logger.logp(err_msg, logging.ERROR)
+            self.logger.logp(err_msg, logging.ERROR)
 
     def getDB(self, bin_key, db_path):
 
@@ -450,7 +466,7 @@ class Db():
         except Exception as ex:
             err_msg = 'Exception on delete (key %s) from LevelDB NODE_DB: %s %s ' % (
             bin_key, exc_info(), ex)
-            self.Logger.logp(err_msg, logging.ERROR)
+            self.logger.logp(err_msg, logging.ERROR)
 
 
     def isDBvalue(self, bin_key, db_path, dbm='db'):
@@ -467,7 +483,116 @@ class Db():
 
 
 class Node():
-    pass
+
+    def __init__(self):
+        from queue import Queue
+        self.logger = Logger('Node')
+        self.PORT_REP = 7777  # Receiving data from the world TXs, quiries ...etc
+        self.PORT_UDP = 8888  # Submitting/Requesting data from the miners
+        self.PORT_PUB = 9999  # Publish to Miners fanout
+        self.PORT_PUB_SERVER = 5555   # Optional fanout
+        self.PORT_SUB_CLIENT = 6666   # Optional subscribe
+        self.WORKERS = 3
+        self.Q = Queue()
+        self.init_servers()
+
+
+    def init_server(self, type):
+        import time, socket, zmq, asyncio
+        from time import sleep
+        import threading
+        from multiprocessing import Process
+
+        if type is 'rep':
+            context = zmq.Context()
+            rep_socket = context.socket(zmq.REP)
+            rep_socket.bind("tcp://*:%s" % self.PORT_REP)
+            print('Starting REP server tcp://localhost:%s' % self.PORT_REP, flush=True)
+            while True:
+                rep_msg = rep_socket.recv()
+                self.Q.put_nowait(rep_msg)
+                rep_socket.send(rep_msg)
+
+        if type is 'udps':
+            udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udps_socket.bind(('', self.PORT_UDP))
+            print('Starting UDP server udp://localhost:%s' % self.PORT_UDP, flush=True)
+            while True:
+                udp_msg = udps_socket.recvfrom(1024)
+                data = udp_msg[0]
+                addr = udp_msg[1]
+                self.Q.put_nowait(udp_msg[0])
+
+                if not data:
+                    break
+
+                reply = data
+                udps_socket.sendto(reply, addr)
+                # print('Message[' + addr[0] + ':' + str(addr[1]) + '] - ') # + data.strip()) #ToDo validation on MinersIP + verify
+
+        if type is 'pub':
+            context = zmq.Context()
+            pub_socket = context.socket(zmq.PUB)
+            pub_socket.bind("tcp://*:%s" % self.PORT_PUB)
+            print('Starting PUB server tcp://localhost:%s' % self.PORT_PUB, flush=True)
+            while True:
+                try:
+                    if not self.Q.empty():
+                        pub_msg = Q.get_nowait()
+                        pub_socket.send(pub_msg)
+                except Exception as ex:
+                    print('PUB Exception: %s' % ex, flush=True)
+                    #self.logger.logp('Publish Error: ', logging.ERROR, ex)
+
+        if type is 'sub':
+            context = zmq.Context()
+            sub_socket = context.socket(zmq.SUB)
+            sub_socket.connect("tcp://localhost:%s" % self.PORT_PUB)
+            sub_socket.setsockopt(zmq.SUBSCRIBE, b'')
+            print('Starting SUB server tcp://localhost:%s' % self.PORT_PUB, flush=True)
+            count = 0
+            while True:
+                sub_msg = sub_socket.recv()  # TODO bytes
+                if sub_msg: count += 1
+                #if count % 10 == 0: print('sub_msg_count', count)
+
+        if type is 'req':
+            context = zmq.Context()
+            req_socket = context.socket(zmq.REQ)
+            req_socket.connect("tcp://localhost:%s" % self.PORT_REP)
+            print('Starting REQ server tcp://localhost:%s' % self.PORT_REP, flush=True)
+
+
+        if type is 'udpc':
+            udpc_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # test #TODO to remove
+            print('Starting UDP client', flush=True)
+
+
+    # def sendUDP(self, bin_msg, host='localhost', port=self.PORT_UDP):
+    #     udpc_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #     udpc_socket.sendto(bin_msg, (host, port))
+    #     response = udpc_socket.recvfrom(1024)
+    #     print('Response from %s:%s response: \n%s' %(host, port, response))
+    #     return response
+
+
+    def init_servers(self):
+        from time import sleep
+        import threading
+
+        TYPES = ['rep', 'udps']
+        workers = []
+        print('TYPES', TYPES)
+        for s in range(len(TYPES)):
+            print('Starting server %s' % TYPES[s])
+            t = threading.Thread(target=self.init_server, args=(TYPES[s],), name='server-%s' % TYPES[
+                s])
+            t.daemon = True
+            t.start()
+            workers.append(t)
+        sleep(1)
+
+
 
 class Wallet():
     pass
@@ -500,6 +625,8 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
         self.SERVICE_DB = ServiceDb()
         self.Transaction = Transaction()
         self.Crypto = Crypto()
+        self.Network = Network()
+        self.Node = Node()
 
     def utc(self):
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
