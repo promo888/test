@@ -515,7 +515,10 @@ class Node():
                 rep_msg = rep_socket.recv()
                 self.Q.put_nowait(rep_msg)
                 rep_socket.send(b'ok') #(rep_msg)
-                print('REP got a msg: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg)))
+                print('REP got a msg: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
+                tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
+                tx_bytes = packb(bin_signed_msg)
+                print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
 
         if type is 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -683,7 +686,7 @@ if __name__ == "__main__":
     query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
-    tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], ['TX_GENESIS_%s' % pub_addr], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
+    tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC('TX_GENESIS_%s' % pub_addr)], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
     from msgpack import packb, unpackb
     signed_msg = tools.sign(str(tx[:-2]).encode(), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
@@ -693,14 +696,14 @@ if __name__ == "__main__":
     tx_bytes = packb(bin_signed_msg)
     tools.insertDB(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
     print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
-    print(tools.unpackb(tools.getDB(tools.b(tx_hash), tools.NODE_DB)))
+    print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.unpackb(tools.getDB(tools.b(tx_hash), tools.NODE_DB)))
     #tools.sendTX()
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
    # tools.logp('Finished', logging.INFO)
 #len(bin_signed_msg[0]) #181 == len(str(tx[:-2]).encode()) == TX_MSG 1input/1output/1amount 32+32+8=72 * 10  = +720b
 #len(signed_msg.signature) #64 Sig
 #len(bin_signed_msg[2]) #32  VK
-#181+64+32=277b/Msg ~300b per input ~30kb - 100tx limit
+#181+64+32=277b/Msg ~300b per input ~30kb - 100tx limit #246-287b
 
 
 #Test
