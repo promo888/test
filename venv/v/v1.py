@@ -71,8 +71,28 @@ class Test():
 
 
 class Helper:
-    #def __init__(self):
-    pass
+    import msgpack as mp
+
+    def b(self, str):
+        try:
+            return bytes(str, 'utf8')
+        except:
+            return None#str
+
+
+    def packb(self, obj):
+        try:
+            return mp.packb(obj)
+        except:
+            return None
+
+
+    def unpackb(self, packed_obj):
+        try:
+            return mp.unpackb(packed_obj)
+        except:
+            return None
+
 
 
 class TransactionType:
@@ -258,6 +278,15 @@ class Crypto(Logger):
             return None
 
 
+    def to_HMAC(self, bytes_msg):
+        '''Return HMAC hash from bytes'''
+        try:
+            return HMAC.new(bytes_msg).hexdigest()
+        except:
+            return None
+
+
+
 class Transaction(Logger):
     def __init__(self):
         self.version = "1"
@@ -388,12 +417,53 @@ class ServiceDb(Logger):
 
 class Db():
     def __init__(self):
-        # self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-        # self.NODE_DB = '%s/db/DATA' % ROOT_DIR
-        pass
+        self.Logger = Logger('Db')
+        self.LEVEL_DB = None
 
 
+    def insertDB(self, bin_key, bin_value, db_path):
+        # print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
+        try:
+            if self.DB.LEVEL_DB is None:
+                self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
+            self.DB.LEVEL_DB.Put(bin_key, bin_value)
+        except Exception as ex:
+            err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
+            bin_key, bin_value, exc_info(), ex)
+            self.Logger.logp(err_msg, logging.ERROR)
 
+    def getDB(self, bin_key, db_path):
+
+        try:
+            if self.DB.LEVEL_DB is None:
+                self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
+            return self.DB.LEVEL_DB.Get(bin_key)
+        except:
+            return None
+
+    def deleteDB(self, bin_key, db_path):
+
+        try:
+            if self.DB.LEVEL_DB is None:
+                self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
+                self.DB.LEVEL_DB.Delete(bin_key)
+        except Exception as ex:
+            err_msg = 'Exception on delete (key %s) from LevelDB NODE_DB: %s %s ' % (
+            bin_key, exc_info(), ex)
+            self.Logger.logp(err_msg, logging.ERROR)
+
+
+    def isDBvalue(self, bin_key, db_path, dbm='db'):
+
+        try:
+            dbm = self.DB.LEVEL_DB
+            if dbm is None:
+                dbm = leveldb.LevelDB(db_path)  # Once init held by the process
+            value = dbm.Get(bin_key)
+            # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
+            return True
+        except Exception as ex:
+            return False
 
 
 class Node():
@@ -418,8 +488,10 @@ class Invoke():
     pass
 
 class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Node, Ico, Agent, Exchange, Shop, Invoke):
+    import msgpack as mp
     def __init__(self):
         config = Config()
+        #self.Helper = Helper()
         #self.Logger = Logger() #TODO TO remove Doubles
         self.ROOT_DIR = config.ROOT_DIR
         self.NODE_DB = config.NODE_DB
@@ -427,15 +499,28 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
         self.DB = Db()
         self.SERVICE_DB = ServiceDb()
         self.Transaction = Transaction()
+        self.Crypto = Crypto()
 
-    def utc():
+    def utc(self):
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
 
-    def b(str):
+    def b(self, str):
         try:
             return bytes(str, 'utf8')
         except:
-            return str
+            return None  # str
+
+    def packb(self, obj):
+        try:
+            return mp.packb(obj)
+        except:
+            return None
+
+    def unpackb(self, packed_obj):
+        try:
+            return mp.unpackb(packed_obj)
+        except:
+            return None
 
 
 
@@ -467,10 +552,20 @@ if __name__ == "__main__":
     query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
-    tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], ['TX_GENESIS_%s' % pub_addr] , 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
-    #from msgpack import packb, unpackb
+    tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], ['TX_GENESIS_%s' % pub_addr], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
+    from msgpack import packb, unpackb
     signed_msg = tools.sign(str(tx[:-2]).encode(), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
     assert tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
     assert VerifyKey(rec[0][1]) == VK
+    tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
+    tx_bytes = packb(bin_signed_msg)
+    tools.insertDB(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
+    print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
+    print(tools.unpackb(tools.getDB(tools.b(tx_hash), tools.NODE_DB)))
    # tools.logp('Finished', logging.INFO)
+#len(bin_signed_msg[0]) #181 == len(str(tx[:-2]).encode()) == TX_MSG 1input/1output/1amount 32+32+8=72 * 10  = +720b
+#len(signed_msg.signature) #64 Sig
+#len(bin_signed_msg[2]) #32  VK
+#181+64+32=277b/Msg ~300b per input ~30kb - 100tx limit
+
