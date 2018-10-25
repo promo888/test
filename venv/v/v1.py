@@ -242,6 +242,7 @@ class Network():
        print('ZMQ REQ response: ', response)
 
 
+
    def sendMsgZmqUdp(self, bin_msg, host, port):
        # Miners Request/Fanout Traffic - # TX_LIST, BLOCK, VOTE, DATA ...etc
        pass
@@ -337,7 +338,10 @@ class Transaction():
 
 
     def validateTX(self, tx):
-        pass
+        if len(tx) > 30000: #TODO config
+            return False
+        print('validateTX: TX size is %s bytes' % len(tx))
+        return True
 
     def signTX():
         pass
@@ -536,6 +540,7 @@ class Node():
                 print('REP got a msg: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
                 tx_hash = tools.Crypto.to_HMAC(rep_msg)
                 print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
+                tools.validateTX(rep_msg)
 
         if type is 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -705,7 +710,8 @@ if __name__ == "__main__":
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
     ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
-    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_MSG, [tools.MsgType.UNSPENT_TX + b'GENESIS'], [tools.to_HMAC(tools.MsgType.UNSPENT_TX + tools.b('GENESIS_%s' % pub_addr))],
+    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_MSG, [tools.MsgType.UNSPENT_TX + b'GENESIS'],
+                                 [tools.to_HMAC(tools.MsgType.UNSPENT_TX + tools.b('GENESIS_%s' % pub_addr))],
                                  'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1',
                                  signed_msg._signature, VK._key)
     from msgpack import packb, unpackb
@@ -716,7 +722,7 @@ if __name__ == "__main__":
     tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
     tx_bytes = packb(bin_signed_msg)
     tools.insertDB(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
-    print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
+    ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
     print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.unpackb(tools.getDB(tools.b(tx_hash), tools.NODE_DB)))
     #tools.sendTX()
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
