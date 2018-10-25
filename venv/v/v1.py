@@ -95,23 +95,24 @@ class Helper:
 
 
 
-class TransactionType:
+class MsgType:
     UNSPENT_TX = b'\x00'
     SPENT_TX = b'\x01'
-    SPEND_TX = b'\x02'
+    PARENT_MSG = b'\x02'
     SPEND_MULTI_SIG_TX = b'\x03'
     MINER_FEE_TX = b'\x04'
     MINER_ISSUE_TX = b'\x05'
-    BLOCK_TX = b'\xb0'
-    VOTE_TX = b'\xb1'
+    BLOCK_MSG = b'\xb0'
+    VOTE_MSG = b'\xb1'
     CONTRACT_TX = b'\xc0'
     CONTRACT_CONFIRM_TX = b'\xc1'
+    CONTRACT_MSG = b'\xc2'
     REGISTER_TX = b'\xe1'
     EXCHANGE_TX = b'\x88'
     AGENT_TX = b'\xa7'
     INVOKE_TX = b'\xd1'
     RELAY_TX = b'\xd2'
-    MSG_TX = b'\xd3'
+    MSG_MSG = b'\xd3'
 
     @staticmethod
     def toName(self, value):
@@ -133,10 +134,10 @@ class TransactionType:
 
 
 
-class MsgType:
-    SPEND_TX_MSG_FIELDS = (
-    'ver_num', 'msg_type', 'sigs', 'sig_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr', 'to_addrs',
-    'asset_type', 'amounts', 'ts', )
+# class MsgType:
+#     SPEND_TX_MSG_FIELDS = (
+#     'ver_num', 'msg_type', 'sigs', 'sig_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr', 'to_addrs',
+#     'asset_type', 'amounts', 'ts', )
 
 
 
@@ -144,13 +145,13 @@ class Structure(object):
     def __init__(self):
         self.version = "1"
 
+
 class Config():
     def __init__(self):
         self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
         self.NODE_SERVICE_DB = '%s/../service_db/DATA/service.db' % self.ROOT_DIR
         self.NODE_DB = '%s/../db/DATA' % self.ROOT_DIR
         self.LOGS = '%s/../logs' % self.ROOT_DIR
-
 
 
 class Logger():
@@ -232,6 +233,7 @@ class Network():
    def sendMsgZmqReq(self, bin_msg, host, port):
        import zmq
 
+       #requests from the wallets/outside, pay/sendMsg(TX/ICO/Contract) or retrieve wallets/txs/blocks/contracts ...etc
        context = zmq.Context()
        socket = context.socket(zmq.REQ)
        socket.connect("tcp://%s:%s" % (host, port))
@@ -240,7 +242,13 @@ class Network():
        print('ZMQ REQ response: ', response)
 
 
-class Crypto(Logger):
+   def sendMsgZmqUdp(self, bin_msg, host, port):
+       # Miners Request/Fanout Traffic - # TX_LIST, BLOCK, VOTE, DATA ...etc
+       pass
+
+
+
+class Crypto():
     def __init__(self):
         self.logger = Logger('Crypto')
 
@@ -303,7 +311,7 @@ class Crypto(Logger):
 
 
 
-class Transaction(Logger):
+class Transaction():
     def __init__(self):
         self.logger = Logger('Transaction')
         self.version = "1"
@@ -358,7 +366,11 @@ class Transaction(Logger):
     def deletePtx(self): #delete from pending DB after block & TXs have been persisted
         pass
 
+    def relayTX(self, tx_list): #relay to MasterNode if not is Master myself
+        pass
 
+    def getTX(self, tx_hash): # query if TX exist in DB used for confirmations, verifications and DoubleSpent check
+        pass
 
 
 
@@ -368,24 +380,26 @@ class Contract():
 class Ico():
     pass
 
-class Block(Logger):
-    pass
+class Block():
 
-    def sendBlock():
+    def sendBlock(self): #by MasterMiner
         pass
 
-    def voteBlock():
+    def voteBlock(self):#to MasterMiner or NextOnDutyMiner
         pass
 
-    def verifyBlock():
+    def verifyBlock(self):
+        pass
+
+    def getBlock(self, block_hash): #get block msg
         pass
 
     @staticmethod
-    def persistBlock():
+    def persistBlock(self):
         pass
 
 
-class ServiceDb(Logger):
+class ServiceDb():
     def __init__(self):
         # self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
         # self.NODE_SERVICE_DB = '%s/../service_db/DATA/service.db' % self.ROOT_DIR
@@ -499,6 +513,10 @@ class Node():
         self.init_servers()
 
 
+    def restartServer(self, type): #kill process and restart the server
+        pass
+
+
     def init_server(self, type):
         import time, socket, zmq, asyncio
         from time import sleep
@@ -516,8 +534,7 @@ class Node():
                 self.Q.put_nowait(rep_msg)
                 rep_socket.send(b'ok') #(rep_msg)
                 print('REP got a msg: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
-                tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
-                tx_bytes = packb(bin_signed_msg)
+                tx_hash = tools.Crypto.to_HMAC(rep_msg)
                 print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
 
         if type is 'udps':
@@ -630,6 +647,7 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
         self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
         self.DB = Db()
         self.SERVICE_DB = ServiceDb()
+        self.MsgType = MsgType()
         self.Transaction = Transaction()
         self.Crypto = Crypto()
         self.Network = Network()
@@ -686,7 +704,10 @@ if __name__ == "__main__":
     query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
-    tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC('TX_GENESIS_%s' % pub_addr)], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
+    ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
+    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_MSG, [tools.MsgType.UNSPENT_TX + b'GENESIS'], [tools.to_HMAC(tools.MsgType.UNSPENT_TX + tools.b('GENESIS_%s' % pub_addr))],
+                                 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1',
+                                 signed_msg._signature, VK._key)
     from msgpack import packb, unpackb
     signed_msg = tools.sign(str(tx[:-2]).encode(), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
@@ -704,6 +725,7 @@ if __name__ == "__main__":
 #len(signed_msg.signature) #64 Sig
 #len(bin_signed_msg[2]) #32  VK
 #181+64+32=277b/Msg ~300b per input ~30kb - 100tx limit #246-287b
-
+    # while True: #Accept connections 4ever
+    #     time.sleep(0.001)
 
 #Test
