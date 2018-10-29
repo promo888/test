@@ -94,11 +94,26 @@ class Helper:
             return None
 
 
+# class Events:
+#     MSG_ACCEPTED
+#     MSG_VERIFIED
+#     BLOCK_ACCEPTED
+#     BLOCK_VOTE_ACCEPTED
+#     I_AM_A_MASTER
+#     MASTER_IS_NOT_AVAILABLE
+#     NODE_PENALTIED
+#     CONTRACT_DUE
+#     CONTRACT_SIDE_CONFIRMED
+#     CONTRACT_RELEASE
+#     ORACLE_INVOLVED
 
-class MsgType:
-    UNSPENT_TX = b'\x00'
-    SPENT_TX = b'\x01'
-    PARENT_MSG = b'\x02'
+
+class Types:
+
+    #Transactions/Messages
+    UNSPENT_TX = '+'    #b'+' #b'\x00'
+    SPENT_TX = '-'      #b'-'   #b'\x01'
+    PARENT_TX_MSG = '*' #b'*' #b'\x02'
     SPEND_MULTI_SIG_TX = b'\x03'
     MINER_FEE_TX = b'\x04'
     MINER_ISSUE_TX = b'\x05'
@@ -109,10 +124,26 @@ class MsgType:
     CONTRACT_MSG = b'\xc2'
     REGISTER_TX = b'\xe1'
     EXCHANGE_TX = b'\x88'
+    ICO_TX = b'\xa6'
     AGENT_TX = b'\xa7'
     INVOKE_TX = b'\xd1'
     RELAY_TX = b'\xd2'
     MSG_MSG = b'\xd3'
+
+    #Wallets
+
+    #CREATE_ASSET_TX
+    #MULTI_SIG_WALLET_CREATE_TX
+    #SYNC_WALLET_REQUEST
+    #GET_TX_REQUEST
+    #GET_BLOCK_REQUEST
+    #GET_MINER_NODES_REQUEST
+    #GET_MINER_PENALTIES_REQUEST
+    #VERIFY_BTC_REQUEST
+    #VERIFY_ETH_REQUEST
+    #ASSIGN_ORACLE
+    #ANONYMOUS TX
+    #
 
     @staticmethod
     def toName(self, value):
@@ -289,8 +320,8 @@ class Crypto():
     def verify(self, signed_msg, VerifyingKey):
         '''Return True if msg verified, otherwise false'''
         try:
-            VerifyingKey.verify(signed_msg)
-            return True
+            verified_msg = VerifyingKey.verify(signed_msg)
+            return True, verified_msg
         except:
             return False
 
@@ -316,30 +347,85 @@ class Transaction():
     def __init__(self):
         self.logger = Logger('Transaction')
         self.version = "1"
-        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, 'output_txs': list, 'from_addr': str,
-                              'to_addrs': list, 'asset_type': str, 'amounts': list, 'ts': datetime,
+        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, 'output_txs': list, # 'from_addr': str,->Multisig
+                              'to_addrs': list, 'asset_type': str, 'amounts': list,
                               'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
+        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 3: 'input_txs', 4: 'output_txs',
+                              5: 'to_addrs', 6: 'asset_type' , 7: 'amounts',
+                              8: 'sig_type', 9: 'sigs', 10: 'pub_keys'}
 
-    def setTX(self, ver_num, msg_type, input_txs, output_txs, from_addr, to_addrs, asset_type, amounts, ts, sig_type, sig, pub_keys):
+    def setTX(self, ver_num, msg_type, input_txs, output_txs, to_addrs, asset_type, amounts, sig_type, sig, pub_keys):
         tx = ()
         tx += (ver_num,)
         tx += (msg_type,)
         tx += (input_txs,)
         tx += (output_txs,)
-        tx += (from_addr,)
         tx += (to_addrs,)
         tx += (asset_type,)
         tx += (amounts,)
-        tx += (ts,)
         tx += (sig_type,)
         tx += (sig,)
         tx += (pub_keys,)
         return tx #validateTX(tx)
+    #len((639).to_bytes(2, 'little').decode()) == 2
+    #len(str(100).encode()) == 3
 
-
-    def validateTX(self, tx):
-        if len(tx) > 30000: #TODO config
+    def validateMsgSize(self, msgType, bin_msg):
+        msg_max_size = {tools.MsgType.PARENT_TX_MSG: 25000} #TODO config
+        if msgType not in msg_max_size.keys() or len(bin_msg) > msg_max_size[msgType]:
             return False
+        return True
+
+
+    def decodeMsg(self, msg_with_bin_values):
+        try:
+            decoded_msg = ()
+            for f in msg_with_bin_values:
+                if type(f) is bytes:
+                    t = tools.dec(f)
+                    decoded_msg += (t,)
+                elif type(f) is list:
+                    l = [tools.dec(v) if type(v) is bytes else v for v in f]
+                    decoded_msg += (l,)
+                else:
+                    decoded_msg += (f,)
+            return decoded_msg
+        except:
+            return None
+
+
+    def validateMsg(self, bin_msg):
+        print('ValidateMsg...')
+        try:
+            unpacked_msg = unpackb(bin_msg)
+            msg = tuple(unpackb(unpacked_msg[0]))
+            decoded_msg = self.decodeMsg(msg)
+            if decoded_msg is None:
+                return False
+            if not self.validateMsgSize(decoded_msg[1], bin_msg):
+                return False
+            if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
+               return self.validateTX(decoded_msg, bin_msg[1], bin_msg[2])
+            elif decoded_msg[1] == tools.MsgType.BLOCK_MSG:
+                pass
+            else:
+                return False
+        except Exception as ex:
+            return False
+
+
+    def validateTX(self, tx_msg, sig, pub_key, verifyTX=False):
+        print('ValidateTX...')
+
+        tx_field_indexes = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values())[:-2] #fields amount
+        for i in range(len(tx_field_indexes)):
+            if type(tx_msg[i]) is not tools.Transaction.TX_MSG_FIELDS[tx_field_indexes[i]]: #fields type
+                return False
+            if (type(tx_msg[i]) is list):
+                restricted_list_types =  [v for v in tx_msg[i] if type(v) not in (str, float)] #list_fields type
+                if len(restricted_list_types) > 0:
+                    return False
+
         print('validateTX: TX size is %s bytes' % len(tx))
         return True
 
@@ -507,7 +593,7 @@ class Node():
     def __init__(self):
         from queue import Queue
         self.logger = Logger('Node')
-        self.PORT_REP = 7777  # Receiving data from the world TXs, quiries ...etc
+        self.PORT_REP = 7777  # Receiving data from the world TXs, queries ...etc
         self.PORT_UDP = 8888  # Submitting/Requesting data from the miners
         self.PORT_PUB = 9999  # Publish to Miners fanout
         self.PORT_PUB_SERVER = 5555   # Optional fanout
@@ -540,7 +626,8 @@ class Node():
                 print('REP got a msg: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
                 tx_hash = tools.Crypto.to_HMAC(rep_msg)
                 print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
-                tools.validateTX(rep_msg)
+                #tools.validateTX(rep_msg)
+                tools.validateMsg(rep_msg)
 
         if type is 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -652,7 +739,7 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
         self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
         self.DB = Db()
         self.SERVICE_DB = ServiceDb()
-        self.MsgType = MsgType()
+        self.MsgType = Types()
         self.Transaction = Transaction()
         self.Crypto = Crypto()
         self.Network = Network()
@@ -665,7 +752,20 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
         try:
             return bytes(str, 'utf8')
         except:
-            return None  # str
+            return None
+
+    def s(self, o):
+        try:
+            return str(o, 'utf8')
+        except:
+            return None
+
+    def dec(self, b):
+        try:
+            return b.decode()
+        except:
+            return b
+
 
     def packb(self, obj):
         try:
@@ -710,17 +810,41 @@ if __name__ == "__main__":
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
     ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
-    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_MSG, [tools.MsgType.UNSPENT_TX + b'GENESIS'],
-                                 [tools.to_HMAC(tools.MsgType.UNSPENT_TX + tools.b('GENESIS_%s' % pub_addr))],
-                                 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1',
-                                 signed_msg._signature, VK._key)
+    unspent_input_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'
+    unspent_output_tx = tools.MsgType.UNSPENT_TX + tools.to_HMAC(tools.b('%s_%s' % (unspent_input_tx, pub_addr)))
+    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_tx], [unspent_output_tx],
+                                 [pub_addr], '1', [10000000000000.1234567890], '98/99', signed_msg._signature, VK._key) #100000000000.1234567890 248b 245b
+
+
     from msgpack import packb, unpackb
-    signed_msg = tools.sign(str(tx[:-2]).encode(), SK)
+    signed_msg = tools.sign(packb(tx[:-2]), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
-    assert tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+    verified, verified_msg =  tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+
+
+
+    ##Test
+    for f in tuple(unpackb(verified_msg)):
+        if type(f) is bytes:
+            t = tools.dec(f)
+            print('type', type(t), t)
+        elif type(f) is list:
+            print('before: list values', type(f), f)
+            l = [tools.dec(v) if type(v) is bytes else v for v in f]
+            #l = [v for v in f if type(v) is not bytes]
+            print('after: list values', type(l), l)
+        else:
+            l = t
+            print('value: ', type(l), l)
+    ####
+
+
+
+    assert verified
     assert VerifyKey(rec[0][1]) == VK
-    tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
+    tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg)) #tools.s(tx[1]) +
     tx_bytes = packb(bin_signed_msg)
+    tools.validateMsg(tx_bytes)
     tools.insertDB(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
     ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
     print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.unpackb(tools.getDB(tools.b(tx_hash), tools.NODE_DB)))
