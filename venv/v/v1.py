@@ -724,8 +724,8 @@ class Node():
     def init_server(self, type):
         import time, socket, zmq, asyncio
         from time import sleep
-        import threading
-        from multiprocessing import Process
+        import threading #TODO scheduled Q
+        from multiprocessing import Process #ToDo killPorts+watchdog
         from msgpack import packb, unpackb
 
         if type is 'rep':
@@ -752,6 +752,16 @@ class Node():
                     tools.SERVICE_DB.insertServiceDBpendingTX(
                         "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                         values)
+#smsg = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx")[0]
+                    # restored_msg = ()
+                    # for f in smsg[:-4]:
+                    #     if isinstance(f, str) and '[' not in f:
+                    #         restored_msg += (f,)
+                    #     else:
+                    #         restored_msg += ([str(v) for v in f],)
+                    # restored_msg
+#TODO to continue restored_msg[0] == validated_msg, packb(restored_msg) == rep_msg
+
 
                     self.Q.put_nowait(msg)
                     #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
