@@ -4,6 +4,8 @@ import sqlite3, leveldb
 import datetime, time, configparser
 import logging
 from logging.handlers import RotatingFileHandler
+from msgpack import packb, unpackb
+
 import configparser
 from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
 from nacl.public import Box, PrivateKey, PublicKey
@@ -11,13 +13,13 @@ from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as
     crypto_sign_seed_keypair as keys_from_seed
 from nacl.signing import SigningKey, VerifyKey
 from Crypto.Hash import SHA256, HMAC, RIPEMD
-
+from decimal import Decimal
 
 
 class Test():
 
     def persistKeysInServiceDB(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
-        sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
+        ddl_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
                                            (                     
                                             priv_key BLOB NOT NULL UNIQUE,
                                             pub_key BLOB NOT NULL UNIQUE,
@@ -28,37 +30,47 @@ class Test():
                                            );'''
 
         sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
-        con = ServiceDb().getServiceDB()
+        con = ServiceDb().getServiceDB() #ServiceDb().getServiceDB()
         try:
             with con:
                 cur = con.cursor()
-                con.execute(sql_v1_test_accounts)
+                con.execute(ddl_v1_test_accounts)
                 cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed), pub_addr_str, nick])
                 con.commit()
         except Exception as ex:
-            logger = Logger()
+            logger = Logger('Test')
             err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
             logger.logp(err_msg, logging.ERROR)
             return None
 
 
         def persistPendingTX(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
-            sql_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
-                                               (                     
-                                                priv_key BLOB NOT NULL UNIQUE,
-                                                pub_key BLOB NOT NULL UNIQUE,
-                                                seed BLOB UNIQUE NOT NULL ,
-                                                pub_addr TEXT NOT NULL UNIQUE,
-                                                nick TEXT DEFAULT NULL UNIQUE,
-                                               PRIMARY KEY(pub_addr) 
-                                               );'''
+            ddl_v1_pending_tx = '''
+                   CREATE TABLE  'v1_pending_tx' (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,  
+                   'ver_num'	TEXT NOT NULL,
+                   'msg_type'	TEXT NOT NULL,
+                   'input_txs'	TEXT NOT NULL,
+                   'output_txs'	TEXT NOT NULL,
+                   'to_addrs'	TEXT,
+                   'asset_type'	TEXT NOT NULL,
+                   'amounts'	TEXT NOT NULL,
+                   'sig_type'	TEXT NOT NULL,
+                   'sigs'	    BLOB NOT NULL,                 
+                   'pub_keys'	BLOB NOT NULL,
+                   'from_addr'	TEXT NOT NULL,
+                   'node_verified'	INTEGER DEFAULT 0,
+                   'node_date'  date NOT NULL
+                   
+               );
+               '''
 
             sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
-            con = ServiceDb().getServiceDB()
+            con = self.getServiceDb() #ServiceDb().getServiceDB()
             try:
                 with con:
                     cur = con.cursor()
-                    con.execute(sql_v1_test_accounts)
+                    con.execute(ddl_v1_pending_tx)
                     cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed),
                                       pub_addr_str, nick])
                     con.commit()
@@ -144,6 +156,9 @@ class Types:
     #ASSIGN_ORACLE
     #ANONYMOUS TX
     #
+
+    #Config
+    MAX_MSG_SIZE_BYTES = 32768
 
     @staticmethod
     def toName(self, value):
@@ -347,31 +362,31 @@ class Transaction():
     def __init__(self):
         self.logger = Logger('Transaction')
         self.version = "1"
-        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, 'output_txs': list, # 'from_addr': str,->Multisig
-                              'to_addrs': list, 'asset_type': str, 'amounts': list,
-                              'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
-        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 3: 'input_txs', 4: 'output_txs',
-                              5: 'to_addrs', 6: 'asset_type' , 7: 'amounts',
-                              8: 'sig_type', 9: 'sigs', 10: 'pub_keys'}
 
-    def setTX(self, ver_num, msg_type, input_txs, output_txs, to_addrs, asset_type, amounts, sig_type, sig, pub_keys):
+        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, #'output_txs': list, # 'from_addr': str,->Multisig
+                              'to_addrs': list, 'asset_type': str, 'amounts': list,'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
+        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 3: 'input_txs', 4: 'to_addrs',
+                                    5: 'asset_type', 6: 'amounts', 7: 'sig_type', 8: 'sigs', 9: 'pub_keys'}
+
+    def setTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys): #output_txs,
         tx = ()
         tx += (ver_num,)
         tx += (msg_type,)
         tx += (input_txs,)
-        tx += (output_txs,)
+#        tx += (output_txs,)
         tx += (to_addrs,)
         tx += (asset_type,)
-        tx += (amounts,)
+        tx += (amounts,) # = Decimal('100000000000.1234567890') #TODO from decimal import Decimal; type(d) is Decimal #len('100000000000.1234567890'.encode()) MAX_LEN 21 + .8n
+        #TODO continue len(str(amounts[0]).split('.')[1]) , '100000000000.12345678' 21chars + < b108 MAX_SUPPLY
         tx += (sig_type,)
-        tx += (sig,)
+        tx += (sigs,)
         tx += (pub_keys,)
         return tx #validateTX(tx)
     #len((639).to_bytes(2, 'little').decode()) == 2
     #len(str(100).encode()) == 3
 
     def validateMsgSize(self, msgType, bin_msg):
-        msg_max_size = {tools.MsgType.PARENT_TX_MSG: 25000} #TODO config
+        msg_max_size = {self.MsgType.PARENT_TX_MSG: self.MsgType.MAX_MSG_SIZE_BYTES} #32678} #TODO config
         if msgType not in msg_max_size.keys() or len(bin_msg) > msg_max_size[msgType]:
             return False
         return True
@@ -382,31 +397,58 @@ class Transaction():
             decoded_msg = ()
             for f in msg_with_bin_values:
                 if type(f) is bytes:
-                    t = tools.dec(f)
+                    t = self.dec(f)
                     decoded_msg += (t,)
                 elif type(f) is list:
-                    l = [tools.dec(v) if type(v) is bytes else v for v in f]
+                    l = [self.dec(v) if type(v) is bytes else v for v in f]
                     decoded_msg += (l,)
                 else:
                     decoded_msg += (f,)
             return decoded_msg
         except:
             return None
+       #tuple(unpackb(packb(msg_with_bin_values))) == msg_with_bin_values
+       #((packb(str(decoded_msg[5][0]))))
+
+    # con = sqlite3.connect(":memory:")
+    # cur = con.cursor()
+    # l = [b'1.1', b'2.2', b'3.3']
+    # print(packb(l))
+    # cur.execute("drop table if exists test")
+    # cur.execute("create table if not exists test(b BLOB, b1 BLOB, b2 BLOB, b3 BLOB, b4 BLOB,b5 BLOB,b6 BLOB)")
+    # b = packb(l)
+    # # print(sqlite3.Binary(b))
+    # cur.execute("insert into test (b, b1, b2 ,b3, b4, b5 ,b6) values(?,?,?,?,?,?,?)",
+    #             [sqlite3.Binary(b), sqlite3.Binary(b), sqlite3.Binary(b), sqlite3.Binary(b), sqlite3.Binary(b),
+    #              sqlite3.Binary(b), sqlite3.Binary(b)])
+    # con.commit()
+    # print(cur.execute("select * from test").fetchall())
+    #
+    # unpackb(packb(999999999.88888888)) == 999999999.88888888
+    #len(packb(999999999.8888888890))  == 9 #decimal #999999999 ==5 999999999012 ==9 999999999012.12345678 ==9
+    # Decimal(unpackb(packb(999999999012.12345678)))
+    #len((('999999999012.12345678'.encode())))
+    #Decimal((b'999999999012.12345678').decode())
 
 
     def validateMsg(self, bin_msg):
-        print('ValidateMsg...')
+        #print('ValidateMsg...')
         try:
+            if len(bin_msg) > self.MsgType.MAX_MSG_SIZE_BYTES:
+                return False
             unpacked_msg = unpackb(bin_msg)
             msg = tuple(unpackb(unpacked_msg[0]))
             decoded_msg = self.decodeMsg(msg)
             if decoded_msg is None:
                 return False
-            if not self.validateMsgSize(decoded_msg[1], bin_msg):
-                return False
-            if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
-               return self.validateTX(decoded_msg, bin_msg[1], bin_msg[2])
-            elif decoded_msg[1] == tools.MsgType.BLOCK_MSG:
+            # if not self.validateMsgSize(decoded_msg[1], bin_msg):
+            #     return False
+            if decoded_msg[1] == self.MsgType.PARENT_TX_MSG:
+               if self.validateTX(decoded_msg, bin_msg[1], bin_msg[2]): #self.to_HMAC(bin_msg)
+                   return decoded_msg
+               else:
+                   return False
+            elif decoded_msg[1] == self.MsgType.BLOCK_MSG: #tools
                 pass
             else:
                 return False
@@ -415,19 +457,19 @@ class Transaction():
 
 
     def validateTX(self, tx_msg, sig, pub_key, verifyTX=False):
-        print('ValidateTX...')
+        #print('ValidateTX...')
 
-        tx_field_indexes = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values())[:-2] #fields amount
+        tx_field_indexes = list(self.Transaction.TX_MSG_FIELDS_INDEX.values())[:-2] #fields amount
         for i in range(len(tx_field_indexes)):
-            if type(tx_msg[i]) is not tools.Transaction.TX_MSG_FIELDS[tx_field_indexes[i]]: #fields type
+            field = tx_msg[i]
+            if type(field) is not self.Transaction.TX_MSG_FIELDS[tx_field_indexes[i]]: #fields type
                 return False
-            if (type(tx_msg[i]) is list):
-                restricted_list_types =  [v for v in tx_msg[i] if type(v) not in (str, float)] #list_fields type
+            if (type(field) is list):
+                restricted_list_types = [v for v in field if type(v) not in (bytes, str)] #list_fields type #, float
                 if len(restricted_list_types) > 0:
                     return False
-
-        print('validateTX: TX size is %s bytes' % len(tx))
         return True
+
 
     def signTX():
         pass
@@ -503,7 +545,45 @@ class ServiceDb():
         self.LOGS = config.LOGS
         print('NODE_DB, NODE_SERVICE_DB', self.NODE_DB, self.NODE_SERVICE_DB)
         self.createNodeDbIfNotExist()
-        self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None)
+        self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None, check_same_thread=False)
+        self.createTablesIfNotExist()
+
+
+    def createTablesIfNotExist(self):
+        ddl_v1_pending_tx = '''
+                           CREATE TABLE  if not exists  'v1_pending_tx' (
+                           'ver_num'	TEXT NOT NULL,
+                           'msg_type'	TEXT NOT NULL,
+                           'input_txs'	TEXT NOT NULL,
+                           'to_addrs'	TEXT,
+                           'asset_type'	TEXT NOT NULL,
+                           'amounts'	REAL NOT NULL,
+                           'sig_type'	TEXT NOT NULL,
+                           'sigs'	    BLOB NOT NULL,                 
+                           'pub_keys'	BLOB NOT NULL,
+                           'msg_hash'   TEXT NOT NULL PRIMARY KEY,
+                           'from_addr'	TEXT NOT NULL,
+                           'node_verified'	INTEGER DEFAULT 0,
+                           'node_date'	date NOT NULL
+
+                       );
+                       '''
+
+
+        ddl_list = [ddl_v1_pending_tx]
+        con = self.SERVICE_DB
+        try:
+            with con:
+                #cur = con.cursor()
+                for ddl in ddl_list:
+                    con.execute(ddl)
+                con.commit()
+        except Exception as ex:
+            logger = Logger('ServiceDb')
+            err_msg = 'Exception ServiceDb.createTablesIfNotExist SqlLite NODE_SERVICE_DB: %s, %s' % (Logger.exc_info(), ex)
+            logger.logp(err_msg, logging.ERROR)
+            raise err_msg
+
 
 
     def createNodeDbIfNotExist(self):
@@ -537,34 +617,54 @@ class ServiceDb():
             return None
 
 
+    def insertServiceDBpendingTX(self, sql, *params):
+        try:
+            if self.SERVICE_DB is None:
+                self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None, check_same_thread=False) #TODO ConfigMap
+
+            con = self.SERVICE_DB
+            with con:
+                #cur = con.cursor()
+                con.execute(sql, params[0]) #ServiceDb().SERVICE_DB.execute(sql, params) #tools.SERVICE_DB.insertServiceDBpendingTX(sql, params[0])
+                con.commit()
+        except Exception as ex:
+            logger = Logger('ServiceDb')
+            err_msg = 'Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: %s, %s' % (
+            Logger.exc_info(), ex)
+            logger.logp(err_msg, logging.ERROR)
+
+
 class Db():
-    def __init__(self):
+    def __init__(self, db_path):
         self.logger = Logger('Db')
         self.LEVEL_DB = None
+        self.DB_PATH = db_path
 
-
-    def insertDB(self, bin_key, bin_value, db_path):
+    def insertDbKey(self, bin_key, bin_value, db_path):
         # print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
         try:
             if self.DB.LEVEL_DB is None:
-                self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
+                self.DB.LEVEL_DB = leveldb.LevelDB(db_path) #self.DB.DB_PATH
             self.DB.LEVEL_DB.Put(bin_key, bin_value)
         except Exception as ex:
             err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
-            bin_key, bin_value, exc_info(), ex)
+            bin_key, bin_value, Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
 
-    def getDB(self, bin_key, db_path):
 
+    def getDbKey(self, bin_key, db_path):
+        if type(bin_key) is not bytes:
+            bin_key = self.b(bin_key)
         try:
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
-            return self.DB.LEVEL_DB.Get(bin_key)
+            return bytes(self.DB.LEVEL_DB.Get(bin_key))
         except:
             return None
 
-    def deleteDB(self, bin_key, db_path):
 
+
+    def deleteDbKey(self, bin_key, db_path):
         try:
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
@@ -576,7 +676,6 @@ class Db():
 
 
     def isDBvalue(self, bin_key, db_path, dbm='db'):
-
         try:
             dbm = self.DB.LEVEL_DB
             if dbm is None:
@@ -588,10 +687,24 @@ class Db():
             return False
 
 
+    def getDbMsg(self, msg_hash):
+        try:
+            value = self.getDbKey(msg_hash, self.DB.DB_PATH)
+            if value is not None:
+                return self.decodeMsg(unpackb(unpackb(value)[0]))
+            else:
+                return None
+        except:
+            return None
+
+
+
+
 class Node():
 
     def __init__(self):
         from queue import Queue
+        import celery
         self.logger = Logger('Node')
         self.PORT_REP = 7777  # Receiving data from the world TXs, queries ...etc
         self.PORT_UDP = 8888  # Submitting/Requesting data from the miners
@@ -601,6 +714,7 @@ class Node():
         self.WORKERS = 3
         self.Q = Queue()
         self.init_servers()
+        self.logger.logp('Node Started', logging.INFO)
 
 
     def restartServer(self, type): #kill process and restart the server
@@ -621,13 +735,35 @@ class Node():
             print('Starting REP server tcp://localhost:%s' % self.PORT_REP, flush=True)
             while True:
                 rep_msg = rep_socket.recv()
-                self.Q.put_nowait(rep_msg)
-                rep_socket.send(b'ok') #(rep_msg)
-                print('REP got a msg: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
-                tx_hash = tools.Crypto.to_HMAC(rep_msg)
-                print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
-                #tools.validateTX(rep_msg)
-                tools.validateMsg(rep_msg)
+                # self.Q.put_nowait(rep_msg)
+                # rep_socket.send(b'ok') #(rep_msg)
+
+                print('ZMQ REP request: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
+
+                #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
+                validated_msg = tools.validateMsg(rep_msg)
+                if validated_msg is not False: #TODO reject if ipaddr > 1 or from_addr within the same block
+                    umsg = unpackb(rep_msg)
+                    msg_hash = tools.Crypto.to_HMAC(rep_msg)
+                    from_addr = tools.Crypto.to_HMAC(umsg[2])
+                    values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
+                    values += [sqlite3.Binary(umsg[1]), sqlite3.Binary(umsg[2]), msg_hash, from_addr, 0, tools.utc()]
+                    #ServiceDb().getServiceDB().
+                    tools.SERVICE_DB.insertServiceDBpendingTX(
+                        "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                        values)
+
+                    self.Q.put_nowait(msg)
+                    #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
+                    msg_hash = tools.Crypto.to_HMAC(packb(umsg))
+                    #print('msg hash: ', msg_hash)
+                    if tools.isDBvalue(msg, tools.NODE_DB) is not None:
+                        rep_socket.send(b'Error: Msg Exist')
+                    else:
+                        verified, verified_msg = tools.verify(umsg[0], umsg[2])
+                        rep_socket.send(b'OK')
+                else:
+                    rep_socket.send(b'Error: Invalid Msg')
 
         if type is 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -731,13 +867,13 @@ class Invoke():
 class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Node, Ico, Agent, Exchange, Shop, Invoke):
     import msgpack as mp
     def __init__(self):
-        config = Config()
+        self.config = Config()
         #self.Helper = Helper()
         #self.Logger = Logger() #TODO TO remove Doubles
-        self.ROOT_DIR = config.ROOT_DIR
-        self.NODE_DB = config.NODE_DB
-        self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
-        self.DB = Db()
+        self.ROOT_DIR = self.config.ROOT_DIR
+        self.NODE_DB = self.config.NODE_DB
+        self.NODE_SERVICE_DB = self.config.NODE_SERVICE_DB
+        self.DB = Db(self.NODE_DB)
         self.SERVICE_DB = ServiceDb()
         self.MsgType = Types()
         self.Transaction = Transaction()
@@ -762,7 +898,13 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
 
     def dec(self, b):
         try:
-            return b.decode()
+            try:
+                v = b.decode() #is str
+            except:
+                #TODO to continue
+                return self.bdecimal2str(b) #DoublePacked number
+
+            return v
         except:
             return b
 
@@ -778,6 +920,59 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
             return mp.unpackb(packed_obj)
         except:
             return None
+
+
+    def isStrNumber(self, str):
+        try:
+            Decimal(str)
+            return True
+        except:
+            return False
+
+
+    def strdecimal2bytes(self, str_decimal):
+        if not isinstance(str_decimal, str):
+            return None
+        if len(str_decimal) > 21: # ToDo fromConfig->updateHome -> n9.n8 100m MaxTx(9)-??? 4now 100b(12)
+            return None
+        if "." in str_decimal:
+            nums = str_decimal.split(".")
+            int_num = nums[0]
+            float_num = nums[1]
+            if not self.isStrNumber(int_num) or not self.isStrNumber(float_num):
+                return None
+            if len(int_num) > 9 or len(float_num) > 8: #ToDo config = 4b.4b
+                return None
+            return int(int_num).to_bytes(4, byteorder='big') + int(float_num).to_bytes(4, byteorder='big')
+        else:
+            int_num = str_decimal
+            if not self.isStrNumber(int_num):
+                return None
+            if len(int_num) > 9:  # ToDo config = 4b
+                return None
+            return int(int_num).to_bytes(4, byteorder='big')
+
+
+    def bdecimal2str(self, b_decimal):
+        if not isinstance(b_decimal, bytes):
+            return None
+        else:
+            if len(b_decimal) > 4: # is float
+                int_num = str(int.from_bytes(b_decimal[:4], 'big'))
+                float_num = str(int.from_bytes(b_decimal[4:], 'big'))
+                if int_num is None or not self.isStrNumber(int_num) or not self.isStrNumber(float_num):
+                    return None
+                if float_num is not None:
+                    return str(Decimal(int_num + '.' + float_num))
+                else:
+                    return str(Decimal(int_num)) #point . exist without an exp
+            else:
+                int_num = str(int.from_bytes(b_decimal[:4], 'big')) # is int
+                if not self.isStrNumber(int_num):
+                    return None
+                if len(int_num) > 9:  # ToDo config = 4b
+                    return None
+                return str(Decimal(int_num))
 
 
 
@@ -810,32 +1005,37 @@ if __name__ == "__main__":
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
     ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
-    unspent_input_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'
-    unspent_output_tx = tools.MsgType.UNSPENT_TX + tools.to_HMAC(tools.b('%s_%s' % (unspent_input_tx, pub_addr)))
-    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_tx], [unspent_output_tx],
-                                 [pub_addr], '1', [10000000000000.1234567890], '98/99', signed_msg._signature, VK._key) #100000000000.1234567890 248b 245b
+    unspent_input_txs = tools.MsgType.UNSPENT_TX + 'GENESIS'
+    unspent_output_tx = tools.MsgType.UNSPENT_TX + tools.to_HMAC(tools.b('%s_%s' % (unspent_input_txs, pub_addr)))
+    # tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs], [unspent_output_tx],
+    #                              [pub_addr], '1', [10000000000000.1234567890], '98/99', signed_msg._signature, VK._key) #100000000000.123 #ToDo 4567890 248b 245b
+    #TODO test limits of float and MAX_FIELD_SIZES
+    bf = tools.strdecimal2bytes('999999999.12345678')
+    sf = tools.bdecimal2str(bf)
+    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+                                 [pub_addr], '1', [b'999999999.12345678'], '98/99', signed_msg._signature, VK._key) #10000000000000.12345678
+    #tools.str2floatb('999999999.12345678')
 
-
-    from msgpack import packb, unpackb
+    ##from msgpack import packb, unpackb
     signed_msg = tools.sign(packb(tx[:-2]), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
-    verified, verified_msg =  tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+    verified, verified_msg = tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
 
 
 
     ##Test
-    for f in tuple(unpackb(verified_msg)):
-        if type(f) is bytes:
-            t = tools.dec(f)
-            print('type', type(t), t)
-        elif type(f) is list:
-            print('before: list values', type(f), f)
-            l = [tools.dec(v) if type(v) is bytes else v for v in f]
-            #l = [v for v in f if type(v) is not bytes]
-            print('after: list values', type(l), l)
-        else:
-            l = t
-            print('value: ', type(l), l)
+    # for f in tuple(unpackb(verified_msg)):
+    #     if type(f) is bytes:
+    #         t = tools.dec(f)
+    #         print('type', type(t), t)
+    #     elif type(f) is list:
+    #         print('before: list values', type(f), f)
+    #         l = [tools.dec(v) if type(v) is bytes else v for v in f]
+    #         #l = [v for v in f if type(v) is not bytes]
+    #         print('after: list values', type(l), l)
+    #     else:
+    #         l = t
+    #         print('value: ', type(l), l)
     ####
 
 
@@ -844,12 +1044,24 @@ if __name__ == "__main__":
     assert VerifyKey(rec[0][1]) == VK
     tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg)) #tools.s(tx[1]) +
     tx_bytes = packb(bin_signed_msg)
-    tools.validateMsg(tx_bytes)
-    tools.insertDB(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
+    #tools.validateMsg(tx_bytes) #Test
+    tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
     ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
-    print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.unpackb(tools.getDB(tools.b(tx_hash), tools.NODE_DB)))
+    ##print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.NODE_DB))[0])))
+    print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.getDbMsg(tx_hash))
     #tools.sendTX()
+
+    #Test
+    # start = time.time()
+    # print('Start: ', tools.utc())
+    # for i in range(10000):
+    #     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+    # print('End  : ', tools.utc(), 'Duration: ', time.time() - start, 'secs')
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+
+
+
+   # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
    # tools.logp('Finished', logging.INFO)
 #len(bin_signed_msg[0]) #181 == len(str(tx[:-2]).encode()) == TX_MSG 1input/1output/1amount 32+32+8=72 * 10  = +720b
 #len(signed_msg.signature) #64 Sig

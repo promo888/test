@@ -362,6 +362,10 @@ def insertServiceDbPending(rec, bin_msg_list):
         return None
 
 
+#tools.SERVICE_DB.queryServiceDB("insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+#query_values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg ]
+#restore_values = (values[5])[1:-1].split(",") #if MSG_TYPE_FIELD is list
+
 if __name__ == "__main__":
     project_dir = os.path.dirname(os.path.abspath(__file__))
     imp = os.path.join(project_dir, "utils")
