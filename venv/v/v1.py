@@ -46,8 +46,7 @@ class Test():
 
         def persistPendingTX(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
             ddl_v1_pending_tx = '''
-                   CREATE TABLE  'v1_pending_tx' (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,  
+                   CREATE TABLE IF NOT EXISTS 'v1_pending_tx' (
                    'ver_num'	TEXT NOT NULL,
                    'msg_type'	TEXT NOT NULL,
                    'input_txs'	TEXT NOT NULL,
@@ -58,9 +57,11 @@ class Test():
                    'sig_type'	TEXT NOT NULL,
                    'sigs'	    BLOB NOT NULL,                 
                    'pub_keys'	BLOB NOT NULL,
+                   'msg_hash'   TEXT NOT NULL, 
                    'from_addr'	TEXT NOT NULL,
                    'node_verified'	INTEGER DEFAULT 0,
-                   'node_date'  date NOT NULL
+                   'node_date'  date NOT NULL,
+                    PRIMARY KEY(msg_hash)
                    
                );
                '''
@@ -210,6 +211,14 @@ class Logger():
         self.logger = logging.getLogger(label)
         self.logger.setLevel(logging.INFO)
 
+        #create file if not exist
+        directory = os.path.dirname(path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        if not os.path.exists(path):
+            with open(path, 'w'): pass
+
+
         # add a rotating handler
         self.handler = RotatingFileHandler(path, maxBytes=10000000, backupCount=10000)
         self.logger.addHandler(self.handler)
@@ -238,6 +247,7 @@ class Logger():
     def __init__(self, log_file='Node'):
         self.log_file = None
         self.Logger = None
+
         self.getLogger(log_file)
 
 
@@ -364,9 +374,9 @@ class Transaction():
         self.version = "1"
 
         self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, #'output_txs': list, # 'from_addr': str,->Multisig
-                              'to_addrs': list, 'asset_type': str, 'amounts': list,'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
-        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 3: 'input_txs', 4: 'to_addrs',
-                                    5: 'asset_type', 6: 'amounts', 7: 'sig_type', 8: 'sigs', 9: 'pub_keys'}
+                              'to_addrs': list, 'asset_type': str, 'amounts': list, 'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
+        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_txs', 3: 'to_addrs',
+                                    4: 'asset_type', 5: 'amounts', 6: 'sig_type', 7: 'sigs', 8: 'pub_keys'}
 
     def setTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys): #output_txs,
         tx = ()
@@ -538,7 +548,7 @@ class ServiceDb():
         # self.NODE_DB = '%s/../db/DATA' % self.ROOT_DIR
         # self.LOGS = '%s/../logs' % self.ROOT_DIR
         config = Config()
-        self.logger = Logger('ServiceDb')
+        self.logger = Logger() #('ServiceDb')
         self.ROOT_DIR = config.ROOT_DIR
         self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
         self.NODE_DB = config.NODE_DB
@@ -551,7 +561,7 @@ class ServiceDb():
 
     def createTablesIfNotExist(self):
         ddl_v1_pending_tx = '''
-                           CREATE TABLE  if not exists  'v1_pending_tx' (
+                           CREATE TABLE  if not exists  v1_pending_tx (
                            'ver_num'	TEXT NOT NULL,
                            'msg_type'	TEXT NOT NULL,
                            'input_txs'	TEXT NOT NULL,
@@ -565,6 +575,7 @@ class ServiceDb():
                            'from_addr'	TEXT NOT NULL,
                            'node_verified'	INTEGER DEFAULT 0,
                            'node_date'	date NOT NULL
+                            
 
                        );
                        '''
@@ -582,7 +593,7 @@ class ServiceDb():
             logger = Logger('ServiceDb')
             err_msg = 'Exception ServiceDb.createTablesIfNotExist SqlLite NODE_SERVICE_DB: %s, %s' % (Logger.exc_info(), ex)
             logger.logp(err_msg, logging.ERROR)
-            raise err_msg
+            raise Exception(err_msg)
 
 
 
@@ -628,10 +639,11 @@ class ServiceDb():
                 con.execute(sql, params[0]) #ServiceDb().SERVICE_DB.execute(sql, params) #tools.SERVICE_DB.insertServiceDBpendingTX(sql, params[0])
                 con.commit()
         except Exception as ex:
-            logger = Logger('ServiceDb')
+            #logger = Logger('ServiceDb')
             err_msg = 'Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: %s, %s' % (
             Logger.exc_info(), ex)
-            logger.logp(err_msg, logging.ERROR)
+            self.logger.logp(err_msg, logging.ERROR)
+            #tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
 
 
 class Db():
@@ -691,13 +703,18 @@ class Db():
         try:
             value = self.getDbKey(msg_hash, self.DB.DB_PATH)
             if value is not None:
-                return self.decodeMsg(unpackb(unpackb(value)[0]))
+                return value#self.decodeMsg(unpackb(unpackb(value)[0]))
             else:
                 return None
         except:
             return None
 
 
+    def decodeDbMsg(self, bin_msg):
+        try:
+            return self.decodeMsg(unpackb(unpackb(bin_msg)[0]))
+        except:
+            return None
 
 
 class Node():
@@ -750,8 +767,16 @@ class Node():
                     values += [sqlite3.Binary(umsg[1]), sqlite3.Binary(umsg[2]), msg_hash, from_addr, 0, tools.utc()]
                     #ServiceDb().getServiceDB().
                     tools.SERVICE_DB.insertServiceDBpendingTX(
-                        "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                        "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, "
+                        "asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, "
+                        "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                         values)
+
+                    # tools.SERVICE_DB.insertServiceDBpendingTX(
+                    #     "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                    #     values)
+                    # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
+
 #smsg = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx")[0]
                     # restored_msg = ()
                     # for f in smsg[:-4]:
@@ -1010,7 +1035,7 @@ if __name__ == "__main__":
     verified_sig = tools.verify(signed_msg, VK)
     pub_addr = tools.getPubAddr(VK)
     print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
-    #test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
+    test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
     query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
@@ -1068,7 +1093,21 @@ if __name__ == "__main__":
     #     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
     # print('End  : ', tools.utc(), 'Duration: ', time.time() - start, 'secs')
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
-
+    bmsg = tools.getDbMsg(tx_hash)
+    btx = tools.decodeDbMsg(bmsg)
+    stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash)[0]
+    #assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
+    list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
+                         if tools.Transaction.TX_MSG_FIELDS[k] is list]
+    list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
+                          v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
+    amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
+    lts_amounts = (stx[amounts_field_index][1:-1].split(","))
+    list_stx = list(stx)
+    for i in list_field_indexes:
+        list_stx[i] = list_stx[i][1:-1].split(",")
+    assert tuple(list_stx[:-6]) == btx
+    tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
 
 
    # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
