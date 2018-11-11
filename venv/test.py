@@ -156,7 +156,7 @@ msg = "Message to sign with ECDSA".encode("ascii")
 signature = sk.sign(msg)
 print(len(str(sk)), len(str(vk)), len(str(signature)))
 print((str(sk)), (str(vk)), (str(signature)))
-assert vk.verify(signature, msg)
+assert vk.verifySig(signature, msg)
 
 #timeit
 import time
@@ -164,7 +164,7 @@ start = time.time()
 duration_secs = 1
 count = 0
 while time.time() - start < duration_secs:
-    valid = vk.verify(signature, msg)
+    valid = vk.verifySig(signature, msg)
     count += 1
 print('%s Regular ECDSA sigs verified within %s secs' % (count, duration_secs))
 

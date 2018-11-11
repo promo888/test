@@ -331,7 +331,7 @@ class Crypto():
         except:
             return None
 
-    def sign(self, msg, SignKey):
+    def signMsg(self, msg, SignKey):
         ''' Return Curve 25519 Signature - msg hexdigest'''
         try:
             signed_msg = SignKey.sign(msg)
@@ -342,12 +342,12 @@ class Crypto():
             self.logger.logp(err_msg, logging.ERROR)
             return None
 
-    def verify(self, signed_msg, VerifyingKey):
+    def verifyMsgSig(self, signed_msg, VerifyingKey):
         '''Return True if msg verified, otherwise false'''
         try:
             verified_msg = VerifyingKey.verify(signed_msg)
             return True, verified_msg
-        except:
+        except Exception as ex:
             return False
 
     def getPubAddr(self, VK):
@@ -394,6 +394,7 @@ class Transaction():
         return tx #validateTX(tx)
     #len((639).to_bytes(2, 'little').decode()) == 2
     #len(str(100).encode()) == 3
+
 
     def validateMsgSize(self, msgType, bin_msg):
         msg_max_size = {self.MsgType.PARENT_TX_MSG: self.MsgType.MAX_MSG_SIZE_BYTES} #32678} #TODO config
@@ -481,11 +482,24 @@ class Transaction():
         return True
 
 
-    def signTX():
-        pass
+    def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs=b"None", pub_keys=b"None", seed=b"None"):
+        try:
+            tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys)
+            if tx is not None and self.validateTX(tx):
+                sk, vk = tools.getKeysFromSeed(seed)
+                signed_msg = tools.signMsg(packb(tx[:-2]), sk)
+                bin_signed_msg = (signed_msg.message, signed_msg.signature, vk._key)
+                return bin_signed_msg
+        except Exception as ex:
+            return None
 
-    def sendTX():
-        pass
+
+
+    def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=b"None", host=None, port=None):
+        bin_signed_msg = self.signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
+        if bin_signed_msg is not None and host is not None and port is not None:
+            tools.sendMsgZmqReq(bin_signed_msg, host, port)
+
 
     def verifyTX():
         pass
@@ -652,26 +666,36 @@ class Db():
         self.LEVEL_DB = None
         self.DB_PATH = db_path
 
-    def insertDbKey(self, bin_key, bin_value, db_path):
+    def insertDbKey(self, bin_key, bin_value, db_path, upsert=False):
         # print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
         try:
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = leveldb.LevelDB(db_path) #self.DB.DB_PATH
-            self.DB.LEVEL_DB.Put(bin_key, bin_value)
+            if self.getDbKey(bin_key, db_path) is None or upsert:
+                self.DB.LEVEL_DB.Put(bin_key, bin_value)
+                return True
         except Exception as ex:
             err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
             bin_key, bin_value, Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
+            return None
 
 
     def getDbKey(self, bin_key, db_path):
         if type(bin_key) is not bytes:
-            bin_key = self.b(bin_key)
+            bin_key = str(bin_key).encode() #self.b(bin_key)
         try:
-            if self.DB.LEVEL_DB is None:
-                self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
-            return bytes(self.DB.LEVEL_DB.Get(bin_key))
-        except:
+            _db = None
+            if type(self) is Tools: #db_path is None:
+                _db_path = self.DB.DB_PATH
+                _db = self.DB.LEVEL_DB
+            else:
+                _db_path = db_path
+                _db = self.LEVEL_DB
+            if _db is None:
+                _db = leveldb.LevelDB(_db_path)
+            return bytes(_db.Get(bin_key))
+        except Exception as ex:
             return None
 
 
@@ -699,14 +723,18 @@ class Db():
             return False
 
 
-    def getDbMsg(self, msg_hash):
+    def getDbMsg(self, msg_hash, db_path = None):
+        if db_path is None:
+            _db_path = self.DB.DB_PATH
+        else:
+            _db_path = db_path
         try:
-            value = self.getDbKey(msg_hash, self.DB.DB_PATH)
+            value = self.getDbKey(msg_hash, _db_path) # self.DB.DB_PATH
             if value is not None:
-                return value#self.decodeMsg(unpackb(unpackb(value)[0]))
+                return value #self.decodeMsg(unpackb(unpackb(value)[0]))
             else:
                 return None
-        except:
+        except Exception as ex:
             return None
 
 
@@ -722,7 +750,7 @@ class Node():
     def __init__(self):
         from queue import Queue
         import celery
-        self.logger = Logger('Node')
+        self.logger = Logger() #('Node')
         self.PORT_REP = 7777  # Receiving data from the world TXs, queries ...etc
         self.PORT_UDP = 8888  # Submitting/Requesting data from the miners
         self.PORT_PUB = 9999  # Publish to Miners fanout
@@ -732,6 +760,34 @@ class Node():
         self.Q = Queue()
         self.init_servers()
         self.logger.logp('Node Started', logging.INFO)
+
+
+    def killByPort(self, ports):
+        lines = subprocess.check_output(["netstat", "-ano"], universal_newlines=True) #"-ano" "-ltnp"
+        rows = []
+        pids = []
+        for port in ports:
+            for line in lines.splitlines()[4:]:
+                # print (line)
+                c = line.split()
+                if port not in c: #[1]:
+                    continue
+                rows.append(line)
+                col = {}
+                col['proto'] = c[0]
+                col['localaddress'] = c[1]
+                col['foreignaddress'] = c[2]
+                col['state'] = c[3]
+                col['pid'] = c[4]
+                if int(col['pid']) > 0:
+                    pids.append(col['pid'])
+                    print("Trying to kill port:%s pid:%s " % (port, col['pid']))
+            if (os.name.lower() == 'nt' and len(pids) > 0):
+                os.popen("taskkill /F /PID " + " ".join(pids))
+            if (os.name.lower() != 'nt' and len(pids) > 0):
+                os.popen("kill -9 " + " ".join(pids))
+        else:
+            print("Ports: ", ports, " are free")
 
 
     def restartServer(self, type): #kill process and restart the server
@@ -751,7 +807,7 @@ class Node():
             rep_socket.bind("tcp://*:%s" % self.PORT_REP)
             print('Starting REP server tcp://localhost:%s' % self.PORT_REP, flush=True)
             while True:
-                rep_msg = rep_socket.recv()
+                rep_msg = rep_socket.recv(1024)
                 # self.Q.put_nowait(rep_msg)
                 # rep_socket.send(b'ok') #(rep_msg)
 
@@ -759,9 +815,11 @@ class Node():
 
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
                 validated_msg = tools.validateMsg(rep_msg)
-                if validated_msg is not False: #TODO reject if ipaddr > 1 or from_addr within the same block
+                msg_hash = tools.Crypto.to_HMAC(rep_msg)
+                msg_in_db = tools.DB.getDbMsg(msg_hash, tools.DB.DB_PATH)
+                if validated_msg is not False and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
-                    msg_hash = tools.Crypto.to_HMAC(rep_msg)
+                    #msg_hash = tools.Crypto.to_HMAC(rep_msg)
                     from_addr = tools.Crypto.to_HMAC(umsg[2])
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
                     values += [sqlite3.Binary(umsg[1]), sqlite3.Binary(umsg[2]), msg_hash, from_addr, 0, tools.utc()]
@@ -795,7 +853,7 @@ class Node():
                     if tools.isDBvalue(msg, tools.NODE_DB) is not None:
                         rep_socket.send(b'Error: Msg Exist')
                     else:
-                        verified, verified_msg = tools.verify(umsg[0], umsg[2])
+                        verified, verified_msg = tools.verifyMsgSig(umsg[0], umsg[2])
                         rep_socket.send(b'OK')
                 else:
                     rep_socket.send(b'Error: Invalid Msg')
@@ -867,6 +925,10 @@ class Node():
         from time import sleep
         import threading
 
+        ports = [self.PORT_REP, self.PORT_UDP, self.PORT_PUB, self.PORT_PUB_SERVER]
+        self.killByPort(ports)
+
+
         TYPES = ['rep', 'udps']
         workers = []
         print('TYPES', TYPES)
@@ -899,7 +961,7 @@ class Agent():
 class Invoke():
     pass
 
-class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Node, Ico, Agent, Exchange, Shop, Invoke):
+class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
     import msgpack as mp
     def __init__(self):
         self.config = Config()
@@ -1020,19 +1082,16 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
 
 
 
-
-
-
-
 if __name__ == "__main__":
     Tools.p("v1.Tools running as a stand-alone script")
     #print('Tools version %s' % Tools().version)
+    node = Node()
     tools = Tools()
     test = Test()
     SK, VK = tools.getKeysFromSeed('Bob')
     msg = b'msg'
-    signed_msg = tools.sign(msg, SK)
-    verified_sig = tools.verify(signed_msg, VK)
+    signed_msg = tools.signMsg(msg, SK)
+    verified_sig = tools.verifyMsgSig(signed_msg, VK)
     pub_addr = tools.getPubAddr(VK)
     print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
     test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
@@ -1040,7 +1099,7 @@ if __name__ == "__main__":
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
     ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
-    unspent_input_txs = tools.MsgType.UNSPENT_TX + 'GENESIS'
+    unspent_input_txs = (tools.MsgType.UNSPENT_TX + 'GENESIS').ljust(32)
     unspent_output_tx = tools.MsgType.UNSPENT_TX + tools.to_HMAC(tools.b('%s_%s' % (unspent_input_txs, pub_addr)))
     # tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs], [unspent_output_tx],
     #                              [pub_addr], '1', [10000000000000.1234567890], '98/99', signed_msg._signature, VK._key) #100000000000.123 #ToDo 4567890 248b 245b
@@ -1052,9 +1111,9 @@ if __name__ == "__main__":
     #tools.str2floatb('999999999.12345678')
 
     ##from msgpack import packb, unpackb
-    signed_msg = tools.sign(packb(tx[:-2]), SK)
+    signed_msg = tools.signMsg(packb(tx[:-2]), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
-    verified, verified_msg = tools.verify(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+    verified, verified_msg = tools.verifyMsgSig(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
 
 
 
@@ -1080,7 +1139,7 @@ if __name__ == "__main__":
     tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg)) #tools.s(tx[1]) +
     tx_bytes = packb(bin_signed_msg)
     #tools.validateMsg(tx_bytes) #Test
-    tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB)
+    tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB) #GENESIS
     ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
     ##print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.NODE_DB))[0])))
     print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.getDbMsg(tx_hash))
@@ -1093,7 +1152,12 @@ if __name__ == "__main__":
     #     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
     # print('End  : ', tools.utc(), 'Duration: ', time.time() - start, 'secs')
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+    tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+                                 [pub_addr], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
+
+
     bmsg = tools.getDbMsg(tx_hash)
+    assert tools.Crypto.to_HMAC(bmsg) == tx_hash
     btx = tools.decodeDbMsg(bmsg)
     stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash)[0]
     #assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
@@ -1108,6 +1172,14 @@ if __name__ == "__main__":
         list_stx[i] = list_stx[i][1:-1].split(",")
     assert tuple(list_stx[:-6]) == btx
     tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
+
+    sdb_tx = tuple(list_stx[:tx_fields_len])
+    db_tx = btx
+    db_tx += (unpackb(bmsg)[1],)
+    db_tx += (unpackb(bmsg)[2],)
+    assert sdb_tx == db_tx
+    assert packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])) == bmsg
+    assert tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1]))) == tx_hash
 
 
    # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)

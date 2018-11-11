@@ -220,7 +220,7 @@ start = time.time()
 duration_secs = 1
 count = 0
 while time.time() - start < duration_secs:
-    assert skey.verify_key.verify(smessage)
+    assert skey.verify_key.verifySig(smessage)
     count += 1
 print('%s NACL.time_verify sigs verified within %s secs' % (count, duration_secs))
 ##assert skey.verify_key.verify(smessage2)

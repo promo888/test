@@ -506,7 +506,7 @@ def sign(msg, SignKey):
 def verify(signed_msg, VerifyingKey):
     '''Return True if msg verified, otherwise false'''
     try:
-        verified = VerifyingKey.verify(signed_msg)
+        verified = VerifyingKey.verifySig(signed_msg)
         return True #verified
     except:
         return False
