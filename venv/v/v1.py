@@ -1,4 +1,4 @@
-import os, sys , subprocess, psutil, pkgutil
+import os, sys, subprocess, psutil, pkgutil
 import msgpack as mp
 import sqlite3, leveldb
 import datetime, time, configparser
@@ -14,6 +14,11 @@ from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as
 from nacl.signing import SigningKey, VerifyKey
 from Crypto.Hash import SHA256, HMAC, RIPEMD
 from decimal import Decimal
+
+import time, socket, zmq, asyncio
+from time import sleep
+import threading
+from multiprocessing import Process #ToDo killPorts+watchdog
 
 
 class Test():
@@ -467,18 +472,26 @@ class Transaction():
             return False
 
 
-    def validateTX(self, tx_msg, sig, pub_key, verifyTX=False):
+    def validateTX(self, tx_msg, sig=None, pub_key=None, verifyTX=False):
         #print('ValidateTX...')
-
-        tx_field_indexes = list(self.Transaction.TX_MSG_FIELDS_INDEX.values())[:-2] #fields amount
-        for i in range(len(tx_field_indexes)):
-            field = tx_msg[i]
-            if type(field) is not self.Transaction.TX_MSG_FIELDS[tx_field_indexes[i]]: #fields type
-                return False
-            if (type(field) is list):
-                restricted_list_types = [v for v in field if type(v) not in (bytes, str)] #list_fields type #, float
-                if len(restricted_list_types) > 0:
+        try:
+            if type(self) is Tools:
+                tx_msg_fields = self.Transaction.TX_MSG_FIELDS
+                tx_msg_fields_index = self.Transaction.TX_MSG_FIELDS_INDEX
+            else:
+                tx_msg_fields = self.TX_MSG_FIELDS
+                tx_msg_fields_index = self.TX_MSG_FIELDS_INDEX
+            tx_field_names = list(tx_msg_fields_index.values())[:-2] #fields amount
+            for i in range(len(tx_field_names)):
+                field_value = tx_msg[i]
+                if type(field_value) is not tx_msg_fields[tx_field_names[i]]: #fields type
                     return False
+                if (type(field_value) is list):
+                    restricted_list_types = [v for v in field_value if type(v) not in (bytes, str)] #list_fields type #, float
+                    if len(restricted_list_types) > 0:
+                        return False
+        except Exception as ex:
+            return False
         return True
 
 
@@ -495,10 +508,11 @@ class Transaction():
 
 
 
-    def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=b"None", host=None, port=None):
-        bin_signed_msg = self.signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
+    def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=None, host=None, port=None):
+        bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
-            tools.sendMsgZmqReq(bin_signed_msg, host, port)
+            tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
+        return bin_signed_msg
 
 
     def verifyTX():
@@ -652,12 +666,14 @@ class ServiceDb():
                 #cur = con.cursor()
                 con.execute(sql, params[0]) #ServiceDb().SERVICE_DB.execute(sql, params) #tools.SERVICE_DB.insertServiceDBpendingTX(sql, params[0])
                 con.commit()
+                return True
         except Exception as ex:
             #logger = Logger('ServiceDb')
             err_msg = 'Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: %s, %s' % (
             Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
             #tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
+            return False
 
 
 class Db():
@@ -711,11 +727,16 @@ class Db():
             self.logger.logp(err_msg, logging.ERROR)
 
 
-    def isDBvalue(self, bin_key, db_path, dbm='db'):
+    def isDBvalue(self, bin_key, db_path=None, dbm='db'):
         try:
-            dbm = self.DB.LEVEL_DB
+            if db_path is None:
+                _db_path = self.DB.DB_PATH
+                dbm = self.DB.LEVEL_DB
+            else:
+                _db_path = db_path
+                dbm = self.LEVEL_DB
             if dbm is None:
-                dbm = leveldb.LevelDB(db_path)  # Once init held by the process
+                dbm = leveldb.LevelDB(_db_path)  # Once init held by the process
             value = dbm.Get(bin_key)
             # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
             return True
@@ -773,6 +794,7 @@ class Node():
                 if port not in c: #[1]:
                     continue
                 rows.append(line)
+                print("%s port is open " % port)
                 col = {}
                 col['proto'] = c[0]
                 col['localaddress'] = c[1]
@@ -795,11 +817,11 @@ class Node():
 
 
     def init_server(self, type):
-        import time, socket, zmq, asyncio
-        from time import sleep
-        import threading #TODO scheduled Q
-        from multiprocessing import Process #ToDo killPorts+watchdog
-        from msgpack import packb, unpackb
+        # import time, socket, zmq, asyncio
+        # from time import sleep
+        # import threading #TODO scheduled Q
+        # from multiprocessing import Process #ToDo killPorts+watchdog
+        # from msgpack import packb, unpackb
 
         if type is 'rep':
             context = zmq.Context()
@@ -813,6 +835,7 @@ class Node():
 
                 print('ZMQ REP request: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
 
+                error = ""
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
                 validated_msg = tools.validateMsg(rep_msg)
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
@@ -824,7 +847,7 @@ class Node():
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
                     values += [sqlite3.Binary(umsg[1]), sqlite3.Binary(umsg[2]), msg_hash, from_addr, 0, tools.utc()]
                     #ServiceDb().getServiceDB().
-                    tools.SERVICE_DB.insertServiceDBpendingTX(
+                    insert = tools.SERVICE_DB.insertServiceDBpendingTX(
                         "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, "
                         "asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, "
                         "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
@@ -846,7 +869,7 @@ class Node():
 #TODO to continue restored_msg[0] == validated_msg, packb(restored_msg) == rep_msg
 
 
-                    self.Q.put_nowait(msg)
+                    self.Q.put_nowait(msg) if insert else None
                     #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
                     msg_hash = tools.Crypto.to_HMAC(packb(umsg))
                     #print('msg hash: ', msg_hash)
@@ -856,7 +879,8 @@ class Node():
                         verified, verified_msg = tools.verifyMsgSig(umsg[0], umsg[2])
                         rep_socket.send(b'OK')
                 else:
-                    rep_socket.send(b'Error: Invalid Msg')
+                    error = "Msg Exist" if msg_in_db is not None else "Invalid Msg"
+                    rep_socket.send(b'Error: ' + error.encode())
 
         if type is 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -962,8 +986,9 @@ class Invoke():
     pass
 
 class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
-    import msgpack as mp
+    #import msgpack as mp
     def __init__(self):
+        self.version = Structure().version
         self.config = Config()
         #self.Helper = Helper()
         #self.Logger = Logger() #TODO TO remove Doubles
@@ -1084,9 +1109,9 @@ class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Bloc
 
 if __name__ == "__main__":
     Tools.p("v1.Tools running as a stand-alone script")
-    #print('Tools version %s' % Tools().version)
-    node = Node()
+
     tools = Tools()
+    print('Tools version %s' % tools.version)
     test = Test()
     SK, VK = tools.getKeysFromSeed('Bob')
     msg = b'msg'
@@ -1152,12 +1177,24 @@ if __name__ == "__main__":
     #     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
     # print('End  : ', tools.utc(), 'Duration: ', time.time() - start, 'secs')
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+
     tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
                                  [pub_addr], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
 
+    tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+                             ['INVALID_ADDR'], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
+
+    #
+    bin_signed_msg2 = tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+                                               [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '98/99', "Bob",
+                                               "localhost", tools.Node.PORT_REP)
+    tx_hash2 = tools.Crypto.to_HMAC(packb(bin_signed_msg2))
+
 
     bmsg = tools.getDbMsg(tx_hash)
+    #bmsg2 = tools.getDbMsg(tx_hash2) #ServiceDB notDB
     assert tools.Crypto.to_HMAC(bmsg) == tx_hash
+    #assert tools.Crypto.to_HMAC(bmsg2) == tx_hash2
     btx = tools.decodeDbMsg(bmsg)
     stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash)[0]
     #assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
@@ -1180,6 +1217,9 @@ if __name__ == "__main__":
     assert sdb_tx == db_tx
     assert packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])) == bmsg
     assert tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1]))) == tx_hash
+
+
+
 
 
    # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
