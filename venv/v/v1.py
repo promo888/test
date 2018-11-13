@@ -19,9 +19,18 @@ import time, socket, zmq, asyncio
 from time import sleep
 import threading
 from multiprocessing import Process #ToDo killPorts+watchdog
-
+from queue import Queue
 
 class Test():
+
+    def getCaller(self):
+        import inspect
+        curframe = inspect.currentframe()
+        calframe = inspect.getouterframes(curframe, 2)
+        print('Caller name: ', calframe[1][3])
+        print('Caller name: ', inspect.stack()[1][3])
+        #print('Caller name: ', sys._getframe().f_back.f_code.co_name)
+
 
     def persistKeysInServiceDB(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
         ddl_v1_test_accounts = '''CREATE TABLE if not exists v1_test_accounts
@@ -43,9 +52,9 @@ class Test():
                 cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed), pub_addr_str, nick])
                 con.commit()
         except Exception as ex:
-            logger = Logger('Test')
-            err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
-            logger.logp(err_msg, logging.ERROR)
+            # logger = Logger('Test')
+            # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+            # logger.logp(err_msg, logging.ERROR)
             return None
 
 
@@ -81,9 +90,9 @@ class Test():
                                       pub_addr_str, nick])
                     con.commit()
             except Exception as ex:
-                logger = Logger('Test')
-                err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
-                logger.logp(err_msg, logging.ERROR)
+                # logger = Logger('Test')
+                # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+                # logger.logp(err_msg, logging.ERROR)
                 return None
 
 
@@ -241,6 +250,7 @@ class Logger():
         self.log_setup.addHandler(fileHandler)
         self.log_setup.addHandler(streamHandler)
 
+
     def logger(self, msg, level, logfile):
         if self.logfile == 'logger2': self.log = logging.getLogger('logger2')
         if self.logfile == 'logger3': self.log = logging.getLogger('logger3')
@@ -252,7 +262,6 @@ class Logger():
     def __init__(self, log_file='Node'):
         self.log_file = None
         self.Logger = None
-
         self.getLogger(log_file)
 
 
@@ -289,7 +298,8 @@ class Logger():
 class Network():
    import time, socket, zmq, asyncio
    def __init__(self):
-       self.logger = Logger('Network')
+       #self.logger = Logger('Network')
+       pass
 
    def sendMsgZmqReq(self, bin_msg, host, port):
        import zmq
@@ -312,7 +322,8 @@ class Network():
 
 class Crypto():
     def __init__(self):
-        self.logger = Logger('Crypto')
+        #self.logger = Logger('Crypto')
+        pass
 
     def getKeysFromRandomSeed(self):
         '''Random Private/Signing and Public/Verify keys'''
@@ -375,7 +386,7 @@ class Crypto():
 
 class Transaction():
     def __init__(self):
-        self.logger = Logger('Transaction')
+        #self.logger = Logger('Transaction')
         self.version = "1"
 
         self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, #'output_txs': list, # 'from_addr': str,->Multisig
@@ -618,9 +629,9 @@ class ServiceDb():
                     con.execute(ddl)
                 con.commit()
         except Exception as ex:
-            logger = Logger('ServiceDb')
+            #logger = Logger('ServiceDb')
             err_msg = 'Exception ServiceDb.createTablesIfNotExist SqlLite NODE_SERVICE_DB: %s, %s' % (Logger.exc_info(), ex)
-            logger.logp(err_msg, logging.ERROR)
+            self.logger.logp(err_msg, logging.ERROR)
             raise Exception(err_msg)
 
 
@@ -678,7 +689,7 @@ class ServiceDb():
 
 class Db():
     def __init__(self, db_path):
-        self.logger = Logger('Db')
+        #self.logger = Logger() #Logger('Db')
         self.LEVEL_DB = None
         self.DB_PATH = db_path
 
@@ -769,9 +780,9 @@ class Db():
 class Node():
 
     def __init__(self):
-        from queue import Queue
-        import celery
-        self.logger = Logger() #('Node')
+        #from queue import Queue
+        #import celery
+        #self.logger = Logger() #('Node')
         self.PORT_REP = 7777  # Receiving data from the world TXs, queries ...etc
         self.PORT_UDP = 8888  # Submitting/Requesting data from the miners
         self.PORT_PUB = 9999  # Publish to Miners fanout
@@ -780,7 +791,8 @@ class Node():
         self.WORKERS = 3
         self.Q = Queue()
         self.init_servers()
-        self.logger.logp('Node Started', logging.INFO)
+        #self.logger.logp('Node Started', logging.INFO)
+        #Tools.logger.logp('Node Started', logging.INFO)
 
 
     def killByPort(self, ports):
@@ -985,13 +997,13 @@ class Agent():
 class Invoke():
     pass
 
-class Tools(Structure, Config, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
+class Tools(Structure, Config, Node, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
     #import msgpack as mp
     def __init__(self):
         self.version = Structure().version
         self.config = Config()
         #self.Helper = Helper()
-        #self.Logger = Logger() #TODO TO remove Doubles
+        #self.logger = Logger() #TODO TO remove Doubles
         self.ROOT_DIR = self.config.ROOT_DIR
         self.NODE_DB = self.config.NODE_DB
         self.NODE_SERVICE_DB = self.config.NODE_SERVICE_DB
@@ -1178,25 +1190,25 @@ if __name__ == "__main__":
     # print('End  : ', tools.utc(), 'Duration: ', time.time() - start, 'secs')
     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
 
-    tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
-                                 [pub_addr], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
+    # tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+    #                              [pub_addr], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
 
-    tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
-                             ['INVALID_ADDR'], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
+    # tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+    #                          ['INVALID_ADDR'], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
 
-    #
     bin_signed_msg2 = tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
                                                [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '98/99', "Bob",
                                                "localhost", tools.Node.PORT_REP)
     tx_hash2 = tools.Crypto.to_HMAC(packb(bin_signed_msg2))
 
-
-    bmsg = tools.getDbMsg(tx_hash)
+    tools.insertDbKey(tools.b(tx_hash2), packb(bin_signed_msg2), tools.NODE_DB)  # TODO to remove ->INvalid
+    bmsg = tools.getDbMsg(tx_hash2)
     #bmsg2 = tools.getDbMsg(tx_hash2) #ServiceDB notDB
-    assert tools.Crypto.to_HMAC(bmsg) == tx_hash
+    assert tools.Crypto.to_HMAC(bmsg) == tx_hash2
     #assert tools.Crypto.to_HMAC(bmsg2) == tx_hash2
     btx = tools.decodeDbMsg(bmsg)
-    stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash)[0]
+
+    stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash2)[0] #not exist in DB
     #assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
     list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
                          if tools.Transaction.TX_MSG_FIELDS[k] is list]
@@ -1207,7 +1219,7 @@ if __name__ == "__main__":
     list_stx = list(stx)
     for i in list_field_indexes:
         list_stx[i] = list_stx[i][1:-1].split(",")
-    assert tuple(list_stx[:-6]) == btx
+    #assert tuple(list_stx[:-6]) == btx #still not in DB
     tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
 
     sdb_tx = tuple(list_stx[:tx_fields_len])
@@ -1216,7 +1228,7 @@ if __name__ == "__main__":
     db_tx += (unpackb(bmsg)[2],)
     assert sdb_tx == db_tx
     assert packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])) == bmsg
-    assert tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1]))) == tx_hash
+    assert tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1]))) == tx_hash2
 
 
 
