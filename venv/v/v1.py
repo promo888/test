@@ -44,7 +44,7 @@ class Test():
                                            );'''
 
         sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
-        con = ServiceDb().getServiceDB() #ServiceDb().getServiceDB()
+        con = ServiceDb().getServiceDB()
         try:
             with con:
                 cur = con.cursor()
@@ -302,7 +302,7 @@ class Network():
        pass
 
    def sendMsgZmqReq(self, bin_msg, host, port):
-       import zmq
+       #import zmq
 
        #requests from the wallets/outside, pay/sendMsg(TX/ICO/Contract) or retrieve wallets/txs/blocks/contracts ...etc
        context = zmq.Context()
@@ -505,7 +505,7 @@ class Transaction():
             return False
         return True
 
-
+#tools
     def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs=b"None", pub_keys=b"None", seed=b"None"):
         try:
             tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys)
@@ -522,8 +522,62 @@ class Transaction():
     def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=None, host=None, port=None):
         bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
-            tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
+            tools.sendMsgZmqReq(packb(bin_signed_msg), host, port) #TODO remove self & tools -> Refactoring
         return bin_signed_msg
+
+
+    def decodeDbMsg(self, bin_msg):
+        try:
+            return tools.decodeMsg(unpackb(unpackb(bin_msg)[0]))
+        except:
+            return None
+
+
+    #tools methods
+    def insertDbTx(self, bin_signed_msg, override=False):
+        tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
+        tx_bytes = packb(bin_signed_msg)
+        valid_msg =  self.validateMsg(tx_bytes)
+        if valid_msg:
+            return tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB, override)
+
+
+    def stx2btx(self, sdb_msg_hash):
+        try:
+            stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % sdb_msg_hash)
+            if len(stx) != 1:
+                return None
+            stx = stx[0]
+            # assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
+            list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
+                                 if tools.Transaction.TX_MSG_FIELDS[k] is list]
+            list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
+                                  v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
+            amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
+            list_stx = list(stx)
+            for i in list_field_indexes:
+                list_stx[i] = list_stx[i][1:-1].split(",")
+            tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
+            tx = tuple(list_stx[:tx_fields_len])
+            btx = (packb(tx[:-2]), tx[-2], tx[-1])
+            btx_hash = tools.Crypto.to_HMAC(packb((packb(tx[:-2]), tx[-2], tx[-1])))
+            return packb(btx), btx_hash
+        except Exception as ex:
+            err_msg = 'Exception Transaction.stx2btx Failed to convert TX from sqlDb into levelDB format(b): %s, %s' % (
+            Logger.exc_info(), ex)
+            #self.logger.logp(err_msg, logging.ERROR)
+            print(err_msg)
+            return None
+
+
+    def getServiceDbTx(self, msg_hash, unique=True):
+        records = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % msg_hash)
+        print('%s Records Found' % len(records))
+        if len(records) == 0:
+            return None
+        else:
+            return records[0] if unique else records
+
 
 
     def verifyTX():
@@ -693,12 +747,12 @@ class Db():
         self.LEVEL_DB = None
         self.DB_PATH = db_path
 
-    def insertDbKey(self, bin_key, bin_value, db_path, upsert=False):
+    def insertDbKey(self, bin_key, bin_value, db_path, override=False):
         # print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
         try:
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = leveldb.LevelDB(db_path) #self.DB.DB_PATH
-            if self.getDbKey(bin_key, db_path) is None or upsert:
+            if self.getDbKey(bin_key, db_path) is None or override:
                 self.DB.LEVEL_DB.Put(bin_key, bin_value)
                 return True
         except Exception as ex:
@@ -755,7 +809,7 @@ class Db():
             return False
 
 
-    def getDbMsg(self, msg_hash, db_path = None):
+    def getDbRec(self, msg_hash, db_path = None):
         if db_path is None:
             _db_path = self.DB.DB_PATH
         else:
@@ -770,11 +824,22 @@ class Db():
             return None
 
 
-    def decodeDbMsg(self, bin_msg):
-        try:
-            return self.decodeMsg(unpackb(unpackb(bin_msg)[0]))
-        except:
-            return None
+    # def decodeDbMsg(self, bin_msg):
+    #     try:
+    #         return self.decodeMsg(unpackb(unpackb(bin_msg)[0]))
+    #     except:
+    #         return None
+    #
+    #
+    # #tools methods
+    # def insertDbTx(self, bin_signed_msg, override=False):
+    #     tx_hash = self.Crypto.to_HMAC(packb(bin_signed_msg))
+    #     tx_bytes = packb(bin_signed_msg)
+    #     valid_msg =  self.validateMsg(tx_bytes)
+    #     if valid_msg:
+    #         return self.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB, override)
+
+
 
 
 class Node():
@@ -851,7 +916,7 @@ class Node():
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
                 validated_msg = tools.validateMsg(rep_msg)
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
-                msg_in_db = tools.DB.getDbMsg(msg_hash, tools.DB.DB_PATH)
+                msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 if validated_msg is not False and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
                     #msg_hash = tools.Crypto.to_HMAC(rep_msg)
@@ -1175,11 +1240,13 @@ if __name__ == "__main__":
     assert VerifyKey(rec[0][1]) == VK
     tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg)) #tools.s(tx[1]) +
     tx_bytes = packb(bin_signed_msg)
-    #tools.validateMsg(tx_bytes) #Test
-    tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB) #GENESIS
+    ##tools.validateMsg(tx_bytes) #Test
+    ##tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB) #GENESIS
+    tools.insertDbTx(bin_signed_msg)
+
     ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
     ##print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.NODE_DB))[0])))
-    print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.getDbMsg(tx_hash))
+    print('LevelDB tx_hash: %s value: \n' % tx_hash, tools.getDbRec(tx_hash))
     #tools.sendTX()
 
     #Test
@@ -1197,18 +1264,26 @@ if __name__ == "__main__":
     #                          ['INVALID_ADDR'], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
 
     bin_signed_msg2 = tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
-                                               [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '98/99', "Bob",
+                                               [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
                                                "localhost", tools.Node.PORT_REP)
     tx_hash2 = tools.Crypto.to_HMAC(packb(bin_signed_msg2))
 
-    tools.insertDbKey(tools.b(tx_hash2), packb(bin_signed_msg2), tools.NODE_DB)  # TODO to remove ->INvalid
-    bmsg = tools.getDbMsg(tx_hash2)
+    ##tools.insertDbKey(tools.b(tx_hash2), packb(bin_signed_msg2), tools.NODE_DB)  # TODO to remove ->INvalid
+    tools.insertDbTx(bin_signed_msg2) # TODO to remove ->INvalid
+
+    bmsg = tools.getDbRec(tx_hash2)
     #bmsg2 = tools.getDbMsg(tx_hash2) #ServiceDB notDB
     assert tools.Crypto.to_HMAC(bmsg) == tx_hash2
     #assert tools.Crypto.to_HMAC(bmsg2) == tx_hash2
     btx = tools.decodeDbMsg(bmsg)
 
     stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash2)[0] #not exist in DB
+    stx2 = tools.getServiceDbTx(tx_hash2)[0]
+    print(type(stx), type(stx2))
+    print(stx2)
+    #assert type(stx) == type(stx2)
+    assert  stx == stx2
+
     #assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
     list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
                          if tools.Transaction.TX_MSG_FIELDS[k] is list]
@@ -1230,7 +1305,8 @@ if __name__ == "__main__":
     assert packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])) == bmsg
     assert tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1]))) == tx_hash2
 
-
+    bmsg2, bmsg2hash = tools.stx2btx(tx_hash2)
+    assert bmsg2hash == tx_hash2
 
    # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
    # tools.logp('Finished', logging.INFO)
