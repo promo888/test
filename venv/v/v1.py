@@ -1232,8 +1232,6 @@ if __name__ == "__main__":
 
 
 
-#####
-
    # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
    # tools.logp('Finished', logging.INFO)
 #len(bin_signed_msg[0]) #181 == len(str(tx[:-2]).encode()) == TX_MSG 1input/1output/1amount 32+32+8=72 * 10  = +720b
