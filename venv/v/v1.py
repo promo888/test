@@ -576,12 +576,20 @@ class Transaction():
         if len(records) == 0:
             return None
         else:
-            return records[0] if unique else records
+            res = records[0] if unique else records
+            return res
+
+
+    def verifyTX(self, msg_hash):
+        if tools.isDBvalue(msg_hash) is not None:
+            return false
+        else:
+            pass
 
 
 
-    def verifyTX():
-        pass
+
+
 
 
     def btx2ptx(self):
@@ -1023,8 +1031,8 @@ class Node():
 
 
     def init_servers(self):
-        from time import sleep
-        import threading
+        # from time import sleep
+        # import threading
 
         ports = [self.PORT_REP, self.PORT_UDP, self.PORT_PUB, self.PORT_PUB_SERVER]
         self.killByPort(ports)
@@ -1045,7 +1053,41 @@ class Node():
 
 
 class Wallet():
-    pass
+    def __init__(self):
+        self.INPUTS = 'INPUTS'
+        self.OUTPUTS = 'OUTPUTS'
+        self.ASSSETS = 'ASSETS'
+
+    def insertTxToWallet(self, pub_addr, tx_hash, tx):
+        if tools.isDBvalue(tx_hash) is not None:
+            return False
+        try:
+            wallet = self.getDbWallet(pub_addr)
+            assets = [{x: wallet[self.ASSSETS][x]} for x in wallet[self.ASSSETS].keys()]
+            tx_amount = [a for a in tx['amounts']]
+            if tx['asset_type'] not in tx[self.ASSSETS].keys():
+                pass #TODO to continue
+                #'{0:.8g}'.format(sum(Decimal(x) for x in d.values()))  '3.9125000'
+                # '{0:.8g}'.format(sum(d.values())) # '3.9125'
+
+            wallet[self.INPUTS] += tx[self.INPUTS]
+            wallet[self.OUTPUTS] += tx[self.OUTPUTS]
+            return True
+        except Exception as ex:
+            return False
+
+    def getDbWallet(self, pub_addr):
+        wallet = tools.getDbRec(pub_addr)
+        if wallet is None:
+            return {self.INPUTS: [], self.OUTPUTS: [], self.ASSSETS: {}}
+        else:
+            return unpackb(wallet)
+
+    def getWalletUnspentAsset(self, asset_type):
+        pass
+
+
+
 
 class Exchange():
     pass
