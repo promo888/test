@@ -498,7 +498,7 @@ class Transaction():
                 if type(field_value) is not tx_msg_fields[tx_field_names[i]]: #fields type
                     return False
                 if (type(field_value) is list):
-                    restricted_list_types = [v for v in field_value if type(v) not in (bytes, str)] #list_fields type #, float
+                    restricted_list_types = [v for v in field_value if type(v) not in (bytes, str)] #list_fields type
                     if len(restricted_list_types) > 0:
                         return False
         except Exception as ex:
@@ -506,7 +506,7 @@ class Transaction():
         return True
 
 #tools
-    def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs=b"None", pub_keys=b"None", seed=b"None"):
+    def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs=[b"*" * 64], pub_keys=[b"*" * 32], seed=b"*" * 32):
         try:
             tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys)
             if tx is not None and self.validateTX(tx):
@@ -517,12 +517,30 @@ class Transaction():
         except Exception as ex:
             return None
 
+    #
+    # def signTX(self, tx_msg, sigs=b"*" * 64, pub_keys=b"*" * 32, seed=b"*" * 32):
+    #     try:
+    #         tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys)
+    #         if tx is not None and self.validateTX(tx):
+    #             sk, vk = tools.getKeysFromSeed(seed)
+    #             signed_msg = tools.signMsg(packb(tx[0]), sk)
+    #             bin_signed_msg = (signed_msg.message, signed_msg.signature, vk._key)
+    #             return bin_signed_msg
+    #     except Exception as ex:
+    #         return None
 
 
     def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=None, host=None, port=None):
         bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
-            tools.sendMsgZmqReq(packb(bin_signed_msg), host, port) #TODO remove self & tools -> Refactoring
+            tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
+        return bin_signed_msg
+
+
+    def submitTX(self, tx, seed=None, host=None, port=None):
+        bin_signed_msg = self.signTX(tx[0], tx[1], tx[2], tx[3], tx[4], tx[5], tx[6], seed=seed)
+        if bin_signed_msg is not None and host is not None and port is not None:
+            tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
         return bin_signed_msg
 
 
@@ -537,30 +555,24 @@ class Transaction():
     def insertDbTx(self, bin_signed_msg, override=False):
         tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
         tx_bytes = packb(bin_signed_msg)
-        valid_msg =  self.validateMsg(tx_bytes)
+        valid_msg = self.validateMsg(tx_bytes)
         if valid_msg:
             return tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB, override)
 
 
-    def stx2btx(self, sdb_msg_hash):
+    def stx2btx(self, stx):
         try:
-            stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % sdb_msg_hash)
-            if len(stx) != 1:
-                return None
-            stx = stx[0]
-            # assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
             list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
                                  if tools.Transaction.TX_MSG_FIELDS[k] is list]
             list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
                                   v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
-            amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
             list_stx = list(stx)
             for i in list_field_indexes:
                 list_stx[i] = list_stx[i][1:-1].split(",")
             tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
-            tx = tuple(list_stx[:tx_fields_len])
-            btx = (packb(tx[:-2]), tx[-2], tx[-1])
-            btx_hash = tools.Crypto.to_HMAC(packb((packb(tx[:-2]), tx[-2], tx[-1])))
+            sdb_tx = tuple(list_stx[:tx_fields_len])
+            btx = (packb(sdb_tx[0]), sdb_tx[-2], sdb_tx[-1])
+            btx_hash = tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])))
             return packb(btx), btx_hash
         except Exception as ex:
             err_msg = 'Exception Transaction.stx2btx Failed to convert TX from sqlDb into levelDB format(b): %s, %s' % (
@@ -568,6 +580,52 @@ class Transaction():
             #self.logger.logp(err_msg, logging.ERROR)
             print(err_msg)
             return None
+
+
+    def btx2stx(self, bmsg):
+        try:
+            stx = tools.decodeDbMsg(bmsg)
+            sig = unpackb(bmsg)[1]
+            pubk = unpackb(bmsg)[2]
+            sdb_tx = stx
+            sdb_tx += (sig,)
+            sdb_tx += (pubk,)
+            stx_hash = tools.Crypto.to_HMAC(packb(stx), sig, pubk)
+            return sdb_tx, stx_hash
+        except Exception as ex:
+            #todo logger
+            return None
+
+
+    def sdbtx2btx(self, sdb_msg_hash):
+        try:
+            stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % sdb_msg_hash)
+            if len(stx) != 1:
+                return None
+            stx = stx[0]
+
+            return tools.stx2btx(stx)
+        except Exception as ex:
+            err_msg = 'Exception Transaction.sdbtx2btx Failed to convert TX from sqlDb into levelDB format(b): %s, %s' % (
+            Logger.exc_info(), ex)
+            #self.logger.logp(err_msg, logging.ERROR)
+            print(err_msg)
+            return None
+
+
+    def dbtx2stx(self, db_msg_hash):
+        try:
+            bmsg = tools.getDbRec(db_msg_hash)
+            if bmsg is None:
+                return None
+            return tools.btx2stx(bmsg)
+        except Exception as ex:
+            err_msg = 'Exception Transaction.dbtx2sdbbtx Failed to convert TX from LevelDB to sqlDb format(b): %s, %s' % (
+            Logger.exc_info(), ex)
+            #self.logger.logp(err_msg, logging.ERROR)
+            print(err_msg)
+            return None
+
 
 
     def getServiceDbTx(self, msg_hash, unique=True):
@@ -580,6 +638,22 @@ class Transaction():
             return res
 
 
+    def getTxAmount(self, stx):
+        try:
+            asset_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('asset_type')
+            asset_type = stx[asset_field_index]
+            amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
+            list_amounts = (stx[amounts_field_index][1:-1].split(","))
+            decimal_list_amounts = [Decimal(x) for x in list_amounts]
+            total_outputs_amount = (format(sum(decimal_list_amounts), '.8f'))
+            #assert sum(decimal_list_amounts) == Decimal(format(sum(decimal_list_amounts), '.8f'))
+
+            return asset_type, total_outputs_amount
+        except Exception as ex:
+            #TODO logger
+            return None
+
+
     def verifyTX(self, msg_hash):
         if tools.isDBvalue(msg_hash) is not None:
             return false
@@ -587,13 +661,6 @@ class Transaction():
             pass
 
 
-
-
-
-
-
-    def btx2ptx(self):
-        pass
 
     @staticmethod
     def persistTX4verify():
@@ -1239,6 +1306,9 @@ if __name__ == "__main__":
     pub_addr = tools.getPubAddr(VK)
     print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
     test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
+    SK2, VK2 = tools.getKeysFromSeed('Alice')
+    pub_addr2 = tools.getPubAddr(VK2)
+    test.persistKeysInServiceDB(SK2._signing_key, SK2.verify_key._key, SK2._seed, pub_addr2, 'Alice')
     query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
     rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
@@ -1305,10 +1375,15 @@ if __name__ == "__main__":
     # tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
     #                          ['INVALID_ADDR'], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
 
+    tx2 = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
+                                               [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
+                                               "localhost", tools.Node.PORT_REP)
     bin_signed_msg2 = tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_txs],
                                                [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
                                                "localhost", tools.Node.PORT_REP)
     tx_hash2 = tools.Crypto.to_HMAC(packb(bin_signed_msg2))
+    bin_signed_msg2 = tools.Transaction.submitTX(tx2, "Bob", "localhost", tools.Node.PORT_REP)
+
 
     ##tools.insertDbKey(tools.b(tx_hash2), packb(bin_signed_msg2), tools.NODE_DB)  # TODO to remove ->INvalid
     tools.insertDbTx(bin_signed_msg2) # TODO to remove ->INvalid
@@ -1320,19 +1395,22 @@ if __name__ == "__main__":
     btx = tools.decodeDbMsg(bmsg)
 
     stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash2)[0] #not exist in DB
-    stx2 = tools.getServiceDbTx(tx_hash2)[0]
+    stx2 = tools.getServiceDbTx(tx_hash2)#[0]
     print(type(stx), type(stx2))
     print(stx2)
-    #assert type(stx) == type(stx2)
-    assert  stx == stx2
 
-    #assert btx == stx[:-6] ##TODO repack of Amounts field ->stringify array insteadof values + ad SK, PK to LevelDb
+    #assert type(stx) == type(stx2)
+    assert stx == stx2
+
+    #assert btx == stx[:-6] ##TODO repack of Amounts field ->repack parts with BigEndian
     list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
                          if tools.Transaction.TX_MSG_FIELDS[k] is list]
     list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
                           v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
     amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
-    lts_amounts = (stx[amounts_field_index][1:-1].split(","))
+    list_amounts = (stx[amounts_field_index][1:-1].split(","))
+    decimal_list_amounts = [Decimal(x) for x in list_amounts]
+    total_outputs_amount = format(sum(decimal_list_amounts), '.8f')
     list_stx = list(stx)
     for i in list_field_indexes:
         list_stx[i] = list_stx[i][1:-1].split(",")
@@ -1347,8 +1425,13 @@ if __name__ == "__main__":
     assert packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])) == bmsg
     assert tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1]))) == tx_hash2
 
-    bmsg2, bmsg2hash = tools.stx2btx(tx_hash2)
+    bmsg2, bmsg2hash = tools.sdbtx2btx(tx_hash2)
     assert bmsg2hash == tx_hash2
+    print('stx2 amount (asset_type, str_total_outputs_amount):', tools.getTxAmount(stx2))
+    btx3, btx3hash = tools.dbtx2stx(tx_hash2)
+    assert btx3hash == tx_hash2
+
+    #TODO asset_type should be persisted with GenesisBlock - > createAsset(tx, fees...)
 
    # tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
    # tools.logp('Finished', logging.INFO)
