@@ -590,16 +590,19 @@ class Transaction():
             sdb_tx = stx
             sdb_tx += (sig,)
             sdb_tx += (pubk,)
-            stx_hash = tools.Crypto.to_HMAC(packb(stx), sig, pubk)
-            return sdb_tx, stx_hash
+            #tx = (packb(stx), sig, pubk)
+            #btx = packb(tx)
+            #assert btx == bmsg #True
+            stx_hash = tools.Crypto.to_HMAC(bmsg)
+            return sdb_tx, stx_msg_hash #btx_msg_hash
         except Exception as ex:
             #todo logger
             return None
 
 
-    def sdbtx2btx(self, sdb_msg_hash):
+    def sdbtx2btx(self, sdb_msg_hash, table='v1_pending_tx'):
         try:
-            stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % sdb_msg_hash)
+            stx = tools.SERVICE_DB.queryServiceDB("select * from %s where msg_hash='%s'" % (table, sdb_msg_hash))
             if len(stx) != 1:
                 return None
             stx = stx[0]
@@ -627,9 +630,8 @@ class Transaction():
             return None
 
 
-
-    def getServiceDbTx(self, msg_hash, unique=True):
-        records = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % msg_hash)
+    def getServiceDbTx(self, msg_hash, unique=True, table='v1_pending_tx'):
+        records = tools.SERVICE_DB.queryServiceDB("select * from %s where msg_hash='%s'" % (table, msg_hash))
         print('%s Records Found' % len(records))
         if len(records) == 0:
             return None
@@ -638,7 +640,34 @@ class Transaction():
             return res
 
 
-    def getTxAmount(self, stx):
+    def getTxMsgFieldIndex(self, field):
+        try:
+            return [k for k, v in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if v == field][0]
+        except:
+            return None
+
+
+    def getTxAmount(self, stx, pub_addr):
+        try:
+            payto_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('to_addrs')
+            list_payto = (stx[payto_field_index][1:-1].split(","))
+            if pub_addr not in list_payto:
+                return None
+            else:
+                payto_tx_idx = list_payto.index(pub_addr)
+                asset_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('asset_type')
+                asset_type = stx[asset_field_index]
+                amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
+                list_amounts = (stx[amounts_field_index][1:-1].split(","))
+                tx_amount = format(Decimal(list_amounts[payto_tx_idx]), '.8f')
+
+                return asset_type, tx_amount
+        except Exception as ex:
+            #TODO logger
+            return None
+
+
+    def getTxMsgAmount(self, stx):
         try:
             asset_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('asset_type')
             asset_type = stx[asset_field_index]
@@ -651,6 +680,13 @@ class Transaction():
             return asset_type, total_outputs_amount
         except Exception as ex:
             #TODO logger
+            return None
+
+
+    def getTxMsgAsset(self, bmsg):
+        try:
+            return self.btx2stx(bmsg)['asset_type']
+        except:
             return None
 
 
@@ -747,7 +783,25 @@ class ServiceDb():
 
                        );
                        '''
-
+        # ddl_v1_wallet_tx = '''
+        #                            CREATE TABLE  if not exists  v1_wallet_tx (
+        #                            'ver_num'	TEXT NOT NULL,
+        #                            'msg_type'	TEXT NOT NULL,
+        #                            'input_txs'	TEXT NOT NULL,
+        #                            'to_addrs'	TEXT,
+        #                            'asset_type'	TEXT NOT NULL,
+        #                            'amounts'	REAL NOT NULL,
+        #                            'sig_type'	TEXT NOT NULL,
+        #                            'sigs'	    BLOB NOT NULL,
+        #                            'pub_keys'	BLOB NOT NULL,
+        #                            'msg_hash'   TEXT NOT NULL PRIMARY KEY,
+        #                            'from_addr'	TEXT NOT NULL,
+        #                            'node_verified'	INTEGER DEFAULT 0,
+        #                            'node_date'	date NOT NULL
+        #
+        #
+        #                        );
+        #                        '''
 
         ddl_list = [ddl_v1_pending_tx]
         con = self.SERVICE_DB
@@ -1124,35 +1178,61 @@ class Wallet():
         self.INPUTS = 'INPUTS'
         self.OUTPUTS = 'OUTPUTS'
         self.ASSSETS = 'ASSETS'
+        self.INPUTS_IDX = 0
+        self.OUTPUTS_IDX = 1
 
-    def insertTxToWallet(self, pub_addr, tx_hash, tx):
-        if tools.isDBvalue(tx_hash) is not None:
+
+    def insertTxToDbWallet(self, pub_addr, btx_msg_hash, stx):
+        if tools.isDBvalue(btx_msg_hash) is not None: #todo calc msg_hash
             return False
         try:
             wallet = self.getDbWallet(pub_addr)
+            asset_type, tx_amount = tools.getTxAmount(stx, pub_addr)
+            if asset_type is None or tx_amount is None:
+                return False
+            if asset_type not in wallet[pub_addr]:
+                wallet[pub_addr][asset_type] = {}
+            if btx_msg_hash in wallet[pub_addr][asset_type]:
+                return False
+            wallet[pub_addr][asset_type][btx_msg_hash] = tx_amount
+            input = [pub_addr, asset_type, btx_msg_hash, tx_amount]
+            outputs = []
+            #TODO [pub_addr,asset_type,btx_msg_hash,tx_amount] #for inputs
+            #TODO [from_addr,btx_msg_hash,asset_type,tx_amount] #for outputs
+            #TODO to continue
+
+
             assets = [{x: wallet[self.ASSSETS][x]} for x in wallet[self.ASSSETS].keys()]
-            tx_amount = [a for a in tx['amounts']]
-            if tx['asset_type'] not in tx[self.ASSSETS].keys():
+            tx_amount = [a for a in stx['amounts']]
+            if stx['asset_type'] not in stx[self.ASSSETS].keys():
                 pass #TODO to continue
                 #'{0:.8g}'.format(sum(Decimal(x) for x in d.values()))  '3.9125000'
                 # '{0:.8g}'.format(sum(d.values())) # '3.9125'
 
-            wallet[self.INPUTS] += tx[self.INPUTS]
-            wallet[self.OUTPUTS] += tx[self.OUTPUTS]
-            return True
+            wallet[self.INPUTS] += stx[self.INPUTS]
+            wallet[self.OUTPUTS] += stx[self.OUTPUTS]
+            return True #bwallet {pub_key: {asset_type: {inputs[], outputs[], unspent_amount}}}
         except Exception as ex:
             return False
 
+#wallet[pub_addr]['assets'].append({'some_asset' :{}})
     def getDbWallet(self, pub_addr):
         wallet = tools.getDbRec(pub_addr)
-        if wallet is None:
-            return {self.INPUTS: [], self.OUTPUTS: [], self.ASSSETS: {}}
+        if wallet is None: #INPUTS/OUTPUTS {msgHash: bmsg}, ASSETS {assetType: amount}
+            return {pub_addr: {}} #{'assets': {}}} # {'asset_type': [[], [], None]}
+            #{self.INPUTS: [], self.OUTPUTS: [], self.ASSSETS: []}
         else:
             return unpackb(wallet)
 
-    def getWalletUnspentAsset(self, asset_type):
+    def getWalletUnspentAssetAmount(self, pub_key, asset_type):
         pass
 
+
+    def validateBeforeUpdateClinetWallet(self):
+        pass #validates that previous wallet's data exist otherwise reject
+
+    def updateClientWallet(self):
+        pass
 
 
 
@@ -1427,9 +1507,33 @@ if __name__ == "__main__":
 
     bmsg2, bmsg2hash = tools.sdbtx2btx(tx_hash2)
     assert bmsg2hash == tx_hash2
-    print('stx2 amount (asset_type, str_total_outputs_amount):', tools.getTxAmount(stx2))
+    print('stx2 amount (asset_type, str_total_outputs_amount):', tools.getTxMsgAmount(stx2))
     btx3, btx3hash = tools.dbtx2stx(tx_hash2)
     assert btx3hash == tx_hash2
+#stx4 = tools.decodeMsg(unpackb(bin_signed_msg2[0]))
+#tools.getTxMsgFieldIndex("input_txs")
+#calc output_tx/unspent +hash(msg_hash_pay_to_addr)
+#tools.getTxMsgFieldIndex("asset_type")
+#tools.getTxMsgFieldIndex("amounts")
+
+#onBlockPerEachPtx
+    #wallet/pub_key_addr = [ [assetType [tx => [list_rec [inputs/unspent] [outputs/spent]] ]
+#bmsg -> [].eachTx{
+    #verifyAsset exist, verifyTX amounts, verifyUniquePtxPerBlock?
+    # persistPtx(ptx_hash: bmsg),
+    #
+    # WalletInputs: persistUnspent(payto_wallet.append '+'hash(ptx_hash_payto): asset_type, amount, ptx_hash),
+    # WalletOutputs: persistSpent(pub_addr_from_wallet.append_with_persist_each_as_spent_input
+    #    [assetType :[ptx_hash: list['-'input_tx_hash/prev ptx_hash]] ) ->easycalc
+    # }
+
+    #ToDo to continue/implement ? duplicate ptx_hash persisted to db for i/o
+    #todo to think solution LATER ptx_hash: wallets: assetType: i/o
+    #spent & unspent persisted to db by +- hash(ptx_hash_to_pub_key)_
+    #inputs ->  persistDb ptx_hash: ptx_msg + persistWallet('-'input_tx_hash) for Sender
+    #outputs -> persistWallet +tx_hash: assetType,amount,ptx_hash for Receiver
+    #outputs
+    #  #TODo to think wallet: {assetType: {[hashOf unspent+amount], [hashOf spent(unspent_total)] }}
 
     #TODO asset_type should be persisted with GenesisBlock - > createAsset(tx, fees...)
 
