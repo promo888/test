@@ -127,7 +127,7 @@ s = str(tx_hash).encode('utf8')
 signature = privKeyObj.sign(s, privKeyObj.publickey().key.n) #pbk_n pubKeyObj.key.n
 tx['sig'] = signature
 pubKeyObj = RSA.importKey(tx['pub_key'])
-print('Verified Signature', pubKeyObj.publickey().verify(s, signature), signature) #tx['msg']
+print('Verified Signature', pubKeyObj.publickey().verifySig(s, signature), signature) #tx['msg']
 print('Verified MsgHash', tx['msg_hash'] == SHA256.new(str(tx['msg']).encode('utf8')).hexdigest())
 print('PubKey Wallet Address1', SHA256.new(str(pubKeyObj.publickey()).encode('utf8')).hexdigest())
 #print('PubKey Wallet Address2', SHA256.new(str(pubKeyObj.publickey().key.n).encode('utf8')).hexdigest())
@@ -178,7 +178,7 @@ def verify_sign(public_key_loc, signature, data):
     digest = SHA256.new()
     # Assumes the data is base64 encoded to begin with
     digest.update(b64decode(data))
-    if signer.verify(digest, b64decode(signature)):
+    if signer.verifySig(digest, b64decode(signature)):
         return True
     return False
 

@@ -226,13 +226,13 @@ print('SigLen2: %s' % len(str(signature[0]).encode('utf-8')))
 
 print('public_key', repr(public_key.publickey))
 print('signature', sys.getsizeof(signature[0]), signature)
-print('Verified Signature', public_key.verify(hash, signature))
+print('Verified Signature', public_key.verifySig(hash, signature))
 print('Signature', signature)
 
 test_key = RSA.generate(4096, random_generator)
 test_public_key = test_key.publickey()
 test_public_key.n = public_key.key.n #public_key.e
-print('Test1 Verified Signature', test_public_key.verify(hash, signature))  # False
+print('Test1 Verified Signature', test_public_key.verifySig(hash, signature))  # False
 print('Test1 Verified Signature size', sys.getsizeof(signature[0]))
 
 derPubKey = key.publickey().exportKey('DER')
@@ -273,7 +273,7 @@ while (time.time() - start < duration):
     # print('derPubKey', type(derPubKey), len(derPubKey))
     test_public_key = RSA.importKey(derPubKey)
     # print('Test2 Verified Signature', test_public_key.verify(hash, signature))
-    if test_public_key.verify(hash, signature): count += 1
+    if test_public_key.verifySig(hash, signature): count += 1
 print('%s SigVerified in %s secs' % (count, duration))
 
 pub_addr = SHA256.new(str(public_key.key.n).encode('utf-8')).hexdigest()  # n-priv_key or e-pub_key
@@ -324,7 +324,7 @@ print("%s/sec for RSA GENERATION & ENCRYPTION of %s keys with %s bytes of encryp
 start = time.time()
 count = 1000
 for x in range(count):
-    public_key.verify(hash, signature)
+    public_key.verifySig(hash, signature)
 print("%s/sec for RSA SIGNATURE VERIFICATION" % (count // (time.time() - start)))
 print("RSA SIGNATURE VERIFICATION: %s secs ellapsed for len of %s bytes and count of %s msgs" % (
 time.time() - start, len(hash), count))
@@ -405,7 +405,7 @@ signature2 = h2.hexdigest
 # print('Verified Signature', pubKeyObj.verify(hashlib.sha256(binPubKey.encode('utf-8')), signature)) #TODO hashlib.3_256 or 3_512
 # print('Verified Signature', pubKeyObj.verify(hashlib.sha256(new_tx.encode('utf-8')), signature2))
 ##print('Verified Signature', pubKeyObj.verify(new_tx.encode('utf-8'), signature2))
-print('Verified Signature', pubKeyObj.verify(hash_object, signature2))
+print('Verified Signature', pubKeyObj.verifySig(hash_object, signature2))
 
 # aes = AESCipher(wallet_addr)
 # enc_pubkey = aes.encrypt(binPubKey)
