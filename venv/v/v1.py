@@ -556,6 +556,7 @@ class Transaction():
 
     #tools methods
     def insertDbTx(self, bin_signed_msg, msg_type='*', override=False):
+        print('msgType', tools.s(unpackb(bin_signed_msg[0])[1]))
         tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
         tx_bytes = packb(bin_signed_msg)
         valid_msg = self.validateMsg(tx_bytes)
@@ -1037,7 +1038,7 @@ class Node():
                         rep_socket.send(b'Error: Msg Exist')
                     else:
                         verified, verified_msg = tools.verifyMsgSig(umsg[0], umsg[2])
-                        rep_socket.send(b'OK')
+                        rep_socket.send(b'SigVerified OK')
                 else:
                     error = "Msg Exist" if msg_in_db is not None else "Invalid Msg"
                     rep_socket.send(b'Error: ' + error.encode())
@@ -1309,7 +1310,11 @@ if __name__ == "__main__":
     test = Test()
     SK, VK = tools.getKeysFromSeed('Bob')
     msg = b'msg'
+    msg2 = b'msg2'
     signed_msg = tools.signMsg(msg, SK)
+    signed_msg2 = tools.signMsg(msg2, SK)
+    assert signed_msg._signature != signed_msg2._signature
+    print('msg 1,2 sigs', signed_msg._signature, signed_msg2._signature)
     verified_sig = tools.verifyMsgSig(signed_msg, VK)
     pub_addr = tools.getPubAddr(VK)
     print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
@@ -1322,14 +1327,16 @@ if __name__ == "__main__":
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
     ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
     unspent_input_genesis_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'.ljust(32)
-    unspent_output_genesis_tx = tools.MsgType.UNSPENT_TX + tools.to_HMAC(tools.b('%s_%s' % (unspent_input_genesis_tx, pub_addr)))
+    unspent_output_genesis_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'.ljust(32)
+                                #tools.to_HMAC(tools.b('%s_%s' %  (unspent_input_genesis_tx, pub_addr)))
     # tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], [unspent_output_genesis_tx],
     #                              [pub_addr], '1', [10000000000000.1234567890], '98/99', signed_msg._signature, VK._key) #100000000000.123 #ToDo 4567890 248b 245b
     #TODO test limits of float and MAX_FIELD_SIZES
     bf = tools.strdecimal2bytes('999999999.12345678')
     sf = tools.bdecimal2str(bf)
     tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                                 [pub_addr], '1', [b'999999999.12345678'], '98/99', signed_msg._signature, VK._key) #10000000000000.12345678
+                                 [pub_addr], '1', [b'999999999.12345678'], '98/99',
+                                 signed_msg._signature, VK._key) #10000000000000.12345678
     #tools.str2floatb('999999999.12345678')
 
     ##from msgpack import packb, unpackb
@@ -1364,12 +1371,13 @@ if __name__ == "__main__":
     #                          ['INVALID_ADDR'], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
 
     tx2 = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                                               [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
-                                               "localhost", tools.Node.PORT_REP)
+           [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
+           "localhost", tools.Node.PORT_REP)
     bin_signed_msg2 = tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                                               [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
-                                               "localhost", tools.Node.PORT_REP)
+                      [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
+                      "localhost", tools.Node.PORT_REP)
     tx_hash2 = tools.Crypto.to_HMAC(packb(bin_signed_msg2))
+    print('tx_hash2', tx_hash2)
     bin_signed_msg3 = tools.Transaction.submitTX(tx2, "Bob", "localhost", tools.Node.PORT_REP)
     assert bin_signed_msg2 == bin_signed_msg3
     ##tools.insertDbKey(tools.b(tx_hash2), packb(bin_signed_msg2), tools.NODE_DB)  # TODO to remove ->INvalid
@@ -1439,13 +1447,21 @@ if __name__ == "__main__":
         priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
         sender_pub_addr = tools.getPubAddr(VK)
         receiver_pub_addr = tools.getPubAddr(pub_k)
-        ptx = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], [receiver_pub_addr, receiver_pub_addr, receiver_pub_addr], '1',
+        txBob = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], [receiver_pub_addr, receiver_pub_addr, receiver_pub_addr], '1',
               [b'1.12345678', b'2.123', b'3'], '1/1', sender_seed, "localhost", tools.Node.PORT_REP)
-        signed_ptx = tools.signMsg(packb(ptx), SK)
+        #tx = (txBob[:7],  signed_msg._signature, VK._key)
+        #tx = tools.Transaction.setTX(txBob[:7],  signed_msg._signature, VK._key)
+        tx = txBob
+        signed_msg = tools.signMsg(packb(tx), SK)
+        bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
+        signed_ptx = bin_signed_msg
         tx_hash = tools.Crypto.to_HMAC(packb(signed_ptx))
-        tools.insertDbTx(signed_ptx)
-        dbTxArr.append(tx_hash)
-        print(tx_hash, 'inLevelDb', tools.isDBvalue(tools.b(tx_hash)))
+        tools.insertDbTx(signed_ptx) #TEMP 4TEST todo to disable
+        dbTxArr.append({tools.b(tx_hash): signed_ptx})
+        print(tx_hash, 'Exist in LevelDb', tools.isDBvalue(tools.b(tx_hash))) #, signed_ptx))
+        #print(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0]))
+
     print("DbPtxsHashes: ", dbTxArr)
     print(tools.isDBvalue(tools.b(tx_hash2)))
     print(tools.isDBvalue(tools.b('*'+tx_hash2)))
+    print(unpackb(unpackb(tools.getDbKey(tx_hash2, tools.DB.DB_PATH))[0]))
