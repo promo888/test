@@ -556,10 +556,15 @@ class Transaction():
 
     #tools methods
     def insertDbTx(self, bin_signed_msg, msg_type='*', override=False):
+        print('version', tools.s(unpackb(bin_signed_msg[0])[0]))
         print('msgType', tools.s(unpackb(bin_signed_msg[0])[1]))
+        print('txType', tools.s(unpackb(bin_signed_msg[0])[2][0])[0:1])
+        print('txType', tools.s(unpackb(bin_signed_msg[0])[2][0])[1:])
         tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
         tx_bytes = packb(bin_signed_msg)
         valid_msg = self.validateMsg(tx_bytes)
+        #for itx in (unpackb(bin_signed_msg[0])[2]:
+        #    if tools.is
         if valid_msg:
             return tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB, override) #tools.b(msg_type + tx_hash)
         else:
@@ -1441,14 +1446,15 @@ if __name__ == "__main__":
     ptxArr = []
     dbTxArr = []
     for i in range(1, 10):
-        sender_seed = 'Bob%s' % i #constructs priv and pub keys ->can be copied/constructed from the external devices
+        sender_seed = 'Bob' #%s' % i #constructs priv and pub keys ->can be copied/constructed from the external devices
         receiver_seed = 'Alice%s' % i
         SK, VK = tools.getKeysFromSeed(sender_seed)
         priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
         sender_pub_addr = tools.getPubAddr(VK)
         receiver_pub_addr = tools.getPubAddr(pub_k)
-        txBob = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], [receiver_pub_addr, receiver_pub_addr, receiver_pub_addr], '1',
-              [b'1.12345678', b'2.123', b'3'], '1/1', sender_seed, "localhost", tools.Node.PORT_REP)
+        txBob = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
+                 [receiver_pub_addr, receiver_pub_addr, receiver_pub_addr], '1',
+                 [b'1.12345678', b'2.123', b'3'], '1/1', sender_seed, "localhost", tools.Node.PORT_REP)
         #tx = (txBob[:7],  signed_msg._signature, VK._key)
         #tx = tools.Transaction.setTX(txBob[:7],  signed_msg._signature, VK._key)
         tx = txBob
@@ -1457,9 +1463,11 @@ if __name__ == "__main__":
         signed_ptx = bin_signed_msg
         tx_hash = tools.Crypto.to_HMAC(packb(signed_ptx))
         tools.insertDbTx(signed_ptx) #TEMP 4TEST todo to disable
-        dbTxArr.append({tools.b(tx_hash): signed_ptx})
+        dbTxArr.append({tools.b(tx_hash): signed_ptx})  #todo IfExist to disable remFromQ & remFromStxDb ifExist
         print(tx_hash, 'Exist in LevelDb', tools.isDBvalue(tools.b(tx_hash))) #, signed_ptx))
-        #print(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0]))
+        print(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0]))
+
+#        tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0])[:-3])
 
     print("DbPtxsHashes: ", dbTxArr)
     print(tools.isDBvalue(tools.b(tx_hash2)))
