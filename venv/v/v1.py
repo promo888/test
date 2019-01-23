@@ -1,6 +1,6 @@
 import os, sys, subprocess, psutil, pkgutil
 import msgpack as mp
-import sqlite3, leveldb
+import sqlite3, plyvel #leveldb
 import datetime, time, configparser
 import logging
 from logging.handlers import RotatingFileHandler
@@ -459,7 +459,20 @@ class Transaction():
     #Decimal((b'999999999012.12345678').decode())
 
 
-    def validateMsg(self, bin_msg):
+    def verifyMsg(self, decoded_msg):
+        try:
+            if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
+                if not tools.verifyPTX(decoded_msg):
+                    return False
+
+            elif decoded_msg[1] == tools.MsgType.CONTRACT_TX:
+                pass
+            else:
+                return False
+        except Exception as ex:
+            return False
+
+    def validateMsg(self, bin_msg): #used for tmp persistance handled by tasks
         #print('ValidateMsg...')
         try:
             if len(bin_msg) > self.MsgType.MAX_MSG_SIZE_BYTES:
@@ -559,7 +572,7 @@ class Transaction():
         print('version', tools.s(unpackb(bin_signed_msg[0])[0]))
         print('msgType', tools.s(unpackb(bin_signed_msg[0])[1]))
         print('txType', tools.s(unpackb(bin_signed_msg[0])[2][0])[0:1])
-        print('txType', tools.s(unpackb(bin_signed_msg[0])[2][0])[1:])
+        print('inputTx', tools.s(unpackb(bin_signed_msg[0])[2][0])[1:])
         tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg))
         tx_bytes = packb(bin_signed_msg)
         valid_msg = self.validateMsg(tx_bytes)
@@ -667,22 +680,29 @@ class Transaction():
             return None
 
 
-    def verifyTX(self, msg_hash):
-        if tools.isDBvalue(msg_hash) is not None:
-            return false
+
+    def verifyTX(self, ptx_msg):
+        pass
+
+
+    #TODO verifyBlock or sdb_msg_limit
+    def verifyPTX(self, ptx_msg):
+        ptx_hash = tools.Crypto.to_HMAC(packb(ptx_msg))
+        if tools.isDBvalue(ptx_hash) is not None:
+            return False
         else:
-            pass
+            pass #return verifyTX
 
 
 
-    @staticmethod
+    # @staticmethod
     def persistTX4verify():
         pass
 
     def ptx2btx(self):
         pass
 
-    @staticmethod
+    # @staticmethod
     def persistTX(): #from pending sqlLite to LevelDB + insertUnspentTx after blockVoted & verified
         pass
 
@@ -711,15 +731,27 @@ class Block():
     def voteBlock(self):#to MasterMiner or NextOnDutyMiner
         pass
 
-    def verifyBlock(self):
-        pass
+    def verifyBlock(self, msgtype_arr):
+        arr_hash = tools.Crypto.to_HMAC(packb(msgtype_arr))
+        block_hash = tools.MsgType.BLOCK_MSG + arr_hash
+        if tools.isDBvalue(arr_hash) or tools.isDBvalue(block_hash):
+            return False
+        for msgtype in msgtype_dict:
+            valid_msg = tools.validateMsg(msgtype)
+            if not valid_msg:
+                return False
+            if not tools.verifyMsg(valid_msg):
+                return False
+
+
 
     def getBlock(self, block_hash): #get block msg
         pass
 
-    @staticmethod
-    def persistBlock(self):
-        pass
+    #@staticmethod
+    def persistBlock(self, msgtype_arr):
+        if self.verifyBlock(msgtype_arr):
+            pass
 
 
 class ServiceDb():
@@ -839,16 +871,32 @@ class Db():
         # print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
         try:
             if self.DB.LEVEL_DB is None:
-                self.DB.LEVEL_DB = leveldb.LevelDB(db_path) #self.DB.DB_PATH
+                self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
             if self.getDbKey(bin_key, db_path) is None or override:
-                self.DB.LEVEL_DB.Put(bin_key, bin_value)
-                print("Inserting Key/Value: %s/%s" % (tools.s(bin_key), tools.s(bin_value)))
+                self.DB.LEVEL_DB.put(bin_key, bin_value) #Put is not plyvel
+                print("Inserting Key/Value: %s/%s" % (bin_key, bin_value))
                 return True
         except Exception as ex:
             err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
             bin_key, bin_value, Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
             return None
+
+
+    def insertDbKeys(self, kv_dict, db_path, override=False):
+        try:
+            if self.DB.LEVEL_DB is None:
+                self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
+            with db.write_batch() as wb:
+                for k, v in kv_dict.items():
+                    wb.put(k, v)
+            return True
+        except Exception as ex:
+            err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
+            bin_key, bin_value, Logger.exc_info(), ex)
+            self.logger.logp(err_msg, logging.ERROR)
+            return None
+
 
 
     def getDbKey(self, bin_key, db_path):
@@ -863,8 +911,8 @@ class Db():
                 _db_path = db_path
                 _db = self.LEVEL_DB
             if _db is None:
-                _db = leveldb.LevelDB(_db_path)
-            return bytes(_db.Get(bin_key))
+                _db = plyvel.DB(db_path) #leveldb.LevelDB(_db_path)
+            return bytes(_db.get(bin_key)) #bytes(_db.Get(bin_key))
         except Exception as ex:
             return None
 
@@ -873,8 +921,8 @@ class Db():
     def deleteDbKey(self, bin_key, db_path):
         try:
             if self.DB.LEVEL_DB is None:
-                self.DB.LEVEL_DB = leveldb.LevelDB(db_path)
-                self.DB.LEVEL_DB.Delete(bin_key)
+                self.DB.LEVEL_DB = plyvel.DB(db_path) #leveldb.LevelDB(db_path)
+                self.DB.LEVEL_DB.delete(bin_key) #Delete(bin_key)
         except Exception as ex:
             err_msg = 'Exception on delete (key %s) from LevelDB NODE_DB: %s %s ' % (
             bin_key, exc_info(), ex)
@@ -890,8 +938,8 @@ class Db():
                 _db_path = db_path
                 dbm = self.LEVEL_DB
             if dbm is None:
-                dbm = leveldb.LevelDB(_db_path)  # Once init held by the process
-            value = dbm.Get(bin_key)
+                dbm = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(_db_path)  # Once init held by the process
+            value = dbm.get(bin_key) #dbm.Get(bin_key)
             # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
             return True
         except Exception as ex:
@@ -1443,6 +1491,14 @@ if __name__ == "__main__":
 
 #Test
    #block = {blockNum, blockHash, ptxsArr(ptx->BlockNum)}
+    receivers = []
+    for i in range(1, 101):
+        receiver_seed = 'Alice%s' % i
+        SK, VK = tools.getKeysFromSeed(receiver_seed)
+        priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
+        receiver_pub_addr = tools.getPubAddr(pub_k)
+        receivers.append(receiver_pub_addr)
+
     ptxArr = []
     dbTxArr = []
     for i in range(1, 10):
