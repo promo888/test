@@ -135,8 +135,8 @@ class Helper:
 #     CONTRACT_RELEASE
 #     ORACLE_INVOLVED
 
-
-class Types:
+#tools.MsgType.__class__.__dict__.values()
+class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute__('UNSPENT_TX')
 
     #Transactions/Messages
     UNSPENT_TX = '+'    #b'+' #b'\x00'
@@ -158,6 +158,33 @@ class Types:
     RELAY_TX = b'\xd2'
     MSG_MSG = b'\xd3'
 
+
+    def isValidType(self, typeValue):
+        if typeValue is None or len(typeValue) != 1:
+            return None
+        return next((k for k, v in tools.MsgType.__class__.__dict__.items() if v == typeValue), None)
+
+
+    def getMsgTypes(self):
+        return ['UNSPENT_TX', 'SPENT_TX', 'PARENT_TX_MSG', 'SPEND_MULTI_SIG_TX',
+                'MINER_FEE_TX', 'MINER_ISSUE_TX', 'BLOCK_MSG', 'VOTE_MSG',
+                'CONTRACT_TX', 'CONTRACT_CONFIRM_TX', 'CONTRACT_MSG',
+                'REGISTER_TX', 'EXCHANGE_TX', 'ICO_TX', 'AGENT_TX',
+                'INVOKE_TX', 'RELAY_TX', 'MSG_MSG'
+        ]
+
+
+    def getMsgType(self, msg):
+        return self.isValidType(msg[1])
+
+
+    def changeMsgType(self, msg, toType):
+        if toType in self.getMsgTypes():
+            msg[1] = tools.MsgType.__getattribute__(toType)
+            return msg
+        return None
+
+
     #Wallets
 
     #CREATE_ASSET_TX
@@ -176,23 +203,23 @@ class Types:
     #Config
     MAX_MSG_SIZE_BYTES = 32768
 
-    @staticmethod
-    def toName(self, value):
-        if isinstance(value, int):
-            value = value.to_bytes(1, 'little')
-        for key, item in TransactionType.__dict__.items():
-            if value == item:
-                return key
-        return None
-
-    @staticmethod
-    def getValue(self, keyName):
-        if not isinstance(keyName, str):
-            return None
-        else:
-            for key, value in TransactionType.__dict__.items():
-                if key == keyName.upper():
-                    return value
+    # @staticmethod
+    # def toName(self, value):
+    #     if isinstance(value, int):
+    #         value = value.to_bytes(1, 'little')
+    #     for key, item in TransactionType.__dict__.items():
+    #         if value == item:
+    #             return key
+    #     return None
+    #
+    # @staticmethod
+    # def getValue(self, keyName):
+    #     if not isinstance(keyName, str):
+    #         return None
+    #     else:
+    #         for key, value in tools.MsgType.types: # .__dict__.items():
+    #             if key == keyName.upper():
+    #                 return value
 
 
 
@@ -464,13 +491,13 @@ class Transaction():
             if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
                 if not tools.verifyPTX(decoded_msg):
                     return False
-
             elif decoded_msg[1] == tools.MsgType.CONTRACT_TX:
-                pass
+                pass #todo continue
             else:
                 return False
         except Exception as ex:
             return False
+
 
     def validateMsg(self, bin_msg): #used for tmp persistance handled by tasks
         #print('ValidateMsg...')
