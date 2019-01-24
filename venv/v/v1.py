@@ -759,6 +759,7 @@ class Block():
         pass
 
     def verifyBlock(self, msgtype_arr):
+        to_persist_arr = []
         arr_hash = tools.Crypto.to_HMAC(packb(msgtype_arr))
         block_hash = tools.MsgType.BLOCK_MSG + arr_hash
         if tools.isDBvalue(arr_hash) or tools.isDBvalue(block_hash):
@@ -769,7 +770,8 @@ class Block():
                 return False
             if not tools.verifyMsg(valid_msg):
                 return False
-
+            #TODO get/add additional recs to persist byType -> tx + spent- unspent...
+        return to_persist_arr
 
 
     def getBlock(self, block_hash): #get block msg
@@ -777,7 +779,9 @@ class Block():
 
     #@staticmethod
     def persistBlock(self, msgtype_arr):
-        if self.verifyBlock(msgtype_arr):
+        verified_block = self.verifyBlock(msgtype_arr)
+        if verified_block and type(verified_block) is list:
+            print('TO_IMPLEMENT PERSIST TXs -> RM SDB')
             pass
 
 
