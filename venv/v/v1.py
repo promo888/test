@@ -174,8 +174,8 @@ class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute_
         ]
 
 
-    def getMsgType(self, msg):
-        return self.isValidType(msg[1])
+    def getMsgType(self, msg_type):
+        return self.isValidType(msg_type)
 
 
     def changeMsgType(self, msg, toType):
@@ -517,7 +517,7 @@ class Transaction():
                else:
                    return False
             elif decoded_msg[1] == self.MsgType.BLOCK_MSG: #tools
-                pass
+                print('################## NEW BLOCK TODO ##################')
             else:
                 return False
         except Exception as ex:
@@ -570,6 +570,9 @@ class Transaction():
     #     except Exception as ex:
     #         return None
 
+    def sendMsg(self, msg):
+        pass
+        #TODO to continue with NewBlock ->New Wallet
 
     def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=None, host=None, port=None,sendTx=True):
         bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
@@ -750,11 +753,17 @@ class Contract():
 class Ico():
     pass
 
-class Block():
+class State():
     def __init__(self):
+        self.blockData = {'msg_hash': set(), 'itx': set(), 'from': set(), 'to': set(), '*': set()}
+        self.blockChain = {'last_block': None, 'last_block_state': None, 'current_block': None}
+        self.taskRunner = {'task': set(), 'task_state': set()}
+
+class Block():
+    #def __init__(self):
         #self.logger = Logger('Block')
         #self.version = "1"
-        self.blockData = {'msg_hash': set(), 'itx': set(), 'from': set(), 'to': set(), '*': set()}
+        #self.blockData = {'msg_hash': set(), 'itx': set(), 'from': set(), 'to': set(), '*': set()}
 
     def sendBlock(self): #by MasterMiner
         pass
@@ -1088,6 +1097,7 @@ class Node():
                 error = ""
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
                 validated_msg = tools.validateMsg(rep_msg)
+                print('validated_msg_TYPE: ', tools.MsgType.getMsgType(validated_msg[1]))
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 if validated_msg is not False and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
@@ -1269,7 +1279,7 @@ class Agent():
 class Invoke():
     pass
 
-class Tools(Structure, Config, Node, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
+class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
     #import msgpack as mp
     def __init__(self):
         self.version = Structure().version
@@ -1392,6 +1402,9 @@ class Tools(Structure, Config, Node, Crypto, Network, Db, ServiceDb, Transaction
 
 
 if __name__ == "__main__":
+    #TODO sync time ->
+    # sudo timedatectl set-ntp on;sudo timedatectl set-timezone America/New_York;
+    # timedatectl; assert == both Network time on: and NTP synchronized: should read yes
     Tools.p("v1.Tools running as a stand-alone script")
 
     tools = Tools()
@@ -1431,7 +1444,7 @@ if __name__ == "__main__":
 ###########
     multi_recv = []
     multi_amounts = []
-    for i in range(1, 2):
+    for i in range(1, 5):
         receiver_seed = 'Alice%s' % i
         priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
         receiver_pub_addr = tools.getPubAddr(pub_k)
@@ -1444,9 +1457,11 @@ if __name__ == "__main__":
     tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
     tx_bytes_multi = packb(bin_signed_multi)
     tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
-    ##########
-
-
+##############################
+    block_msg = tools.Transaction.sendTX('1', tools.MsgType.BLOCK_MSG,
+                                               ['HASH_LIST'], 'TODO', 'TODO',
+                                               "localhost", tools.Node.PORT_REP)
+##########################################
     ##from msgpack import packb, unpackb
     signed_msg = tools.signMsg(packb(tx[:-2]), SK)
     bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
@@ -1457,6 +1472,7 @@ if __name__ == "__main__":
     tx_bytes = packb(bin_signed_msg)
     ##tools.validateMsg(tx_bytes) #Test
     ##tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB) #GENESIS
+
     tools.insertDbTx(bin_signed_msg)
 
     ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
@@ -1554,33 +1570,33 @@ if __name__ == "__main__":
         receiver_pub_addr = tools.getPubAddr(pub_k)
         receivers.append(receiver_pub_addr)
 
-    ptxArr = []
-    dbTxArr = []
-    for i in range(1, 10):
-        sender_seed = 'Bob' #%s' % i #constructs priv and pub keys ->can be copied/constructed from the external devices
-        receiver_seed = 'Alice%s' % i
-        SK, VK = tools.getKeysFromSeed(sender_seed)
-        priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
-        sender_pub_addr = tools.getPubAddr(VK)
-        receiver_pub_addr = tools.getPubAddr(pub_k)
-        txBob = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                 [receiver_pub_addr, receiver_pub_addr, receiver_pub_addr], '1',
-                 [b'1.12345678', b'2.123', b'3'], '1/1', sender_seed, "localhost", tools.Node.PORT_REP)
-        #tx = (txBob[:7],  signed_msg._signature, VK._key)
-        #tx = tools.Transaction.setTX(txBob[:7],  signed_msg._signature, VK._key)
-        tx = txBob
-        signed_msg = tools.signMsg(packb(tx), SK)
-        bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
-        signed_ptx = bin_signed_msg
-        tx_hash = tools.Crypto.to_HMAC(packb(signed_ptx))
-        tools.insertDbTx(signed_ptx) #TEMP 4TEST todo to disable
-        dbTxArr.append({tools.b(tx_hash): signed_ptx})  #todo IfExist to disable remFromQ & remFromStxDb ifExist
-        print(tx_hash, 'Exist in LevelDb', tools.isDBvalue(tools.b(tx_hash))) #, signed_ptx))
-        print(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0]))
-
-#        tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0])[:-3])
-
-    print("DbPtxsHashes: ", dbTxArr)
-    print(tools.isDBvalue(tools.b(tx_hash2)))
-    print(tools.isDBvalue(tools.b('*'+tx_hash2)))
-    print(unpackb(unpackb(tools.getDbKey(tx_hash2, tools.DB.DB_PATH))[0]))
+#     ptxArr = []
+#     dbTxArr = []
+#     for i in range(1, 10):
+#         sender_seed = 'Bob' #%s' % i #constructs priv and pub keys ->can be copied/constructed from the external devices
+#         receiver_seed = 'Alice%s' % i
+#         SK, VK = tools.getKeysFromSeed(sender_seed)
+#         priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
+#         sender_pub_addr = tools.getPubAddr(VK)
+#         receiver_pub_addr = tools.getPubAddr(pub_k)
+#         txBob = ('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
+#                  [receiver_pub_addr, receiver_pub_addr, receiver_pub_addr], '1',
+#                  [b'1.12345678', b'2.123', b'3'], '1/1', sender_seed, "localhost", tools.Node.PORT_REP)
+#         #tx = (txBob[:7],  signed_msg._signature, VK._key)
+#         #tx = tools.Transaction.setTX(txBob[:7],  signed_msg._signature, VK._key)
+#         tx = txBob
+#         signed_msg = tools.signMsg(packb(tx), SK)
+#         bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
+#         signed_ptx = bin_signed_msg
+#         tx_hash = tools.Crypto.to_HMAC(packb(signed_ptx))
+#         tools.insertDbTx(signed_ptx) #TEMP 4TEST todo to disable
+#         dbTxArr.append({tools.b(tx_hash): signed_ptx})  #todo IfExist to disable remFromQ & remFromStxDb ifExist
+#         print(tx_hash, 'Exist in LevelDb', tools.isDBvalue(tools.b(tx_hash))) #, signed_ptx))
+#         print(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0]))
+#
+# #        tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0])[:-3])
+#
+#     print("DbPtxsHashes: ", dbTxArr)
+#     print(tools.isDBvalue(tools.b(tx_hash2)))
+#     print(tools.isDBvalue(tools.b('*'+tx_hash2)))
+#     print(unpackb(unpackb(tools.getDbKey(tx_hash2, tools.DB.DB_PATH))[0]))
