@@ -104,7 +104,7 @@ def initServiceDB(pub_key=''):
         'from_addr'	TEXT NOT NULL,
         'to_addr'	TEXT,
         'asset_type'	TEXT NOT NULL,
-        'amount'	REAL NOT NULL,
+        'amounts'	TEXT NOT NULL,
         'ts'	TEXT NOT NULL,
         'node_verified'	INTEGER DEFAULT 0,
         'node_date'	date NOT NULL,
@@ -654,7 +654,7 @@ def insertMsgService(msg): #TaskQ to validate msg and to delete if unvalid -> b/
         genesis_to_addr ='71a758746fc3eb4d3e1e7efb8522a8a13d08c80cbf4eb5cdd0e6e4b473f27b16'
         genesis_tx_hash = '3bbc8b608031e0c9444c293f7ed1031d6683c10869387a83fd8f8a264edba232'
         genesis_msg_hash = genesis_tx_hash #'e8d104457de771c251af9cd31cd40fcd2b061a3f38e2937e0df74423d511b79f'
-        msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amount', 'ts']  # order & fields are handled by ver_num
+        msg_fields_tx = ['ver_num', 'msg_type', 'msg_hash', 'msg', 'sig_type', 'sigs', 'pub_keys', 'input_txs', 'to_addr', 'asset_type', 'amounts', 'ts']  # order & fields are handled by ver_num
         genesis_tx = ['1', MSG_TYPE_SPEND_TX, '1/1', '[%s %s]' % (genesis_sig['r'], genesis_sig['s']), '[%s %s]' % (genesis_pub_key['x'], genesis_pub_key['y']), '[GENESIS]', genesis_to_addr, '1', 10000000000, merkle_date]  # from_address=sha256(pub_key)
         genesis_msg = ['1', MSG_TYPE_SPEND_TX, genesis_tx_hash, genesis_tx] #ver_num, msg_type, tx_hash
         tx_hash = to_sha256(str(genesis_tx))

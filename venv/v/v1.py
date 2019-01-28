@@ -66,7 +66,7 @@ class Test():
                    'msg_type'	TEXT NOT NULL,
                    'input_txs'	TEXT NOT NULL,
                    'output_txs'	TEXT NOT NULL,
-                   'to_addrs'	TEXT,
+                   'to_addrs'	TEXT NOT NULL,
                    'asset_type'	TEXT NOT NULL,
                    'amounts'	TEXT NOT NULL,
                    'sig_type'	TEXT NOT NULL,
@@ -75,8 +75,8 @@ class Test():
                    'msg_hash'   TEXT NOT NULL, 
                    'from_addr'	TEXT NOT NULL,
                    'node_verified'	INTEGER DEFAULT 0,
-                   'node_date'  date NOT NULL,
-                    PRIMARY KEY(msg_hash)
+                   'node_date'  TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(msg_hash) 
                    
                );
                '''
@@ -751,6 +751,10 @@ class Ico():
     pass
 
 class Block():
+    def __init__(self):
+        #self.logger = Logger('Block')
+        #self.version = "1"
+        self.blockData = {'msg_hash': set(), 'itx': set(), 'from': set(), 'to': set(), '*': set()}
 
     def sendBlock(self): #by MasterMiner
         pass
@@ -764,7 +768,7 @@ class Block():
         block_hash = tools.MsgType.BLOCK_MSG + arr_hash
         if tools.isDBvalue(arr_hash) or tools.isDBvalue(block_hash):
             return False
-        for msgtype in msgtype_dict:
+        for msgtype in msgtype_arr:
             valid_msg = tools.validateMsg(msgtype)
             if not valid_msg:
                 return False
@@ -809,16 +813,17 @@ class ServiceDb():
                            'ver_num'	TEXT NOT NULL,
                            'msg_type'	TEXT NOT NULL,
                            'input_txs'	TEXT NOT NULL,
-                           'to_addrs'	TEXT,
+                           'to_addrs'	TEXT NOT NULL,
                            'asset_type'	TEXT NOT NULL,
-                           'amounts'	REAL NOT NULL,
+                           'amounts'	TEXT NOT NULL,
                            'sig_type'	TEXT NOT NULL,
                            'sigs'	    BLOB NOT NULL,                 
                            'pub_keys'	BLOB NOT NULL,
-                           'msg_hash'   TEXT NOT NULL PRIMARY KEY,
+                           'msg_hash'   TEXT NOT NULL,
                            'from_addr'	TEXT NOT NULL,
                            'node_verified'	INTEGER DEFAULT 0,
-                           'node_date'	date NOT NULL
+                           'node_date'	timestamp default current_timestamp,
+                            PRIMARY KEY(msg_hash)                           
                             
 
                        );
@@ -1419,9 +1424,28 @@ if __name__ == "__main__":
     bf = tools.strdecimal2bytes('999999999.12345678')
     sf = tools.bdecimal2str(bf)
     tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                                 [pub_addr], '1', [b'999999999.12345678'], '98/99',
+                                 [pub_addr], '1', [b'999999999.12345678'], '1/1',
                                  signed_msg._signature, VK._key) #10000000000000.12345678
     #tools.str2floatb('999999999.12345678')
+
+###########
+    multi_recv = []
+    multi_amounts = []
+    for i in range(1, 2):
+        receiver_seed = 'Alice%s' % i
+        priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
+        receiver_pub_addr = tools.getPubAddr(pub_k)
+        multi_recv.append(receiver_pub_addr)
+        multi_amounts.append(b'1')
+    unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], multi_recv, '1', multi_amounts, '1/1'
+    signed_tx_multi = tools.signMsg(packb(unsigned_tx_multi), SK)
+    bin_signed_multi = (signed_tx_multi.message, signed_tx_multi.signature, VK._key)
+    #tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
+    tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
+    tx_bytes_multi = packb(bin_signed_multi)
+    tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
+    ##########
+
 
     ##from msgpack import packb, unpackb
     signed_msg = tools.signMsg(packb(tx[:-2]), SK)
