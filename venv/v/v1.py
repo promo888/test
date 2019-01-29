@@ -330,15 +330,18 @@ class Network():
        pass
 
    def sendMsgZmqReq(self, bin_msg, host, port):
-       #import zmq
-
        #requests from the wallets/outside, pay/sendMsg(TX/ICO/Contract) or retrieve wallets/txs/blocks/contracts ...etc
+
        context = zmq.Context()
        socket = context.socket(zmq.REQ)
        socket.connect("tcp://%s:%s" % (host, port))
        socket.send(bin_msg)
        response = socket.recv_string()
        print('ZMQ REQ response: ', response)
+       if 'OK:'.upper() in response.upper():
+           return True
+       else:
+           return False
 
 
 
@@ -381,7 +384,6 @@ class Crypto():
             signed_msg = SignKey.sign(msg)
             return signed_msg
         except Exception as ex:
-
             err_msg = 'Exception on sign msg: %s \n%s, %s' % (msg, Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
             return None
@@ -516,8 +518,9 @@ class Transaction():
                    return decoded_msg
                else:
                    return False
-            elif decoded_msg[1] == self.MsgType.BLOCK_MSG: #tools
+            elif msg[1] == self.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
                 print('################## NEW BLOCK TODO ##################')
+                return msg
             else:
                 return False
         except Exception as ex:
@@ -570,14 +573,17 @@ class Transaction():
     #     except Exception as ex:
     #         return None
 
-    def sendMsg(self, msg):
-        pass
+    def sendMsg(self, msg, sk, vk, host='localhost', port=7777):
         #TODO to continue with NewBlock ->New Wallet
+        signed_msg = tools.signMsg(packb(msg), sk)
+        bin_signed_msg = (signed_msg.message, signed_msg.signature, vk._key)
+        if bin_signed_msg is not None:
+            return tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
 
     def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=None, host=None, port=None,sendTx=True):
         bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
-            if sendTx:
+            if sendTx and bin_signed_msg is not None:
                 tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
         return bin_signed_msg
 
@@ -1090,14 +1096,22 @@ class Node():
             while True:
                 rep_msg = rep_socket.recv(1024)
                 # self.Q.put_nowait(rep_msg)
-                # rep_socket.send(b'ok') #(rep_msg)
+                # rep_socket.send(b'OK:') #(rep_msg)
 
                 print('ZMQ REP request: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
 
                 error = ""
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
                 validated_msg = tools.validateMsg(rep_msg)
+                if not validated_msg or validated_msg is None:
+                    print('Error: Msg Validation failed')
+                    rep_socket.send(b'Error: Msg Validation failed')
+
                 print('validated_msg_TYPE: ', tools.MsgType.getMsgType(validated_msg[1]))
+                if validated_msg[1] == tools.MsgType.BLOCK_MSG:
+                    print('OK: Msg is Valid')
+                    rep_socket.send(b'OK: Msg is Valid')
+
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 if validated_msg is not False and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
@@ -1137,7 +1151,7 @@ class Node():
                         rep_socket.send(b'Error: Msg Exist')
                     else:
                         verified, verified_msg = tools.verifyMsgSig(umsg[0], umsg[2])
-                        rep_socket.send(b'SigVerified OK')
+                        rep_socket.send(b'OK: SigVerified')
                 else:
                     error = "Msg Exist" if msg_in_db is not None else "Invalid Msg"
                     rep_socket.send(b'Error: ' + error.encode())
@@ -1456,11 +1470,12 @@ if __name__ == "__main__":
     #tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
     tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
     tx_bytes_multi = packb(bin_signed_multi)
-    tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
+    res = tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
 ##############################
-    block_msg = tools.Transaction.sendTX('1', tools.MsgType.BLOCK_MSG,
-                                               ['HASH_LIST'], 'TODO', 'TODO',
-                                               "localhost", tools.Node.PORT_REP)
+    bsk, bvk = tools.getKeysFromSeed('Miner1')
+    block_msg = '1', tools.MsgType.BLOCK_MSG, [tx], 'TODO', 'TODO'
+    res = tools.Transaction.sendMsg(block_msg, bsk, bvk, "localhost", tools.Node.PORT_REP)
+
 ##########################################
     ##from msgpack import packb, unpackb
     signed_msg = tools.signMsg(packb(tx[:-2]), SK)
