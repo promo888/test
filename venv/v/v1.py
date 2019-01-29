@@ -1470,12 +1470,16 @@ if __name__ == "__main__":
     #tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
     tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
     tx_bytes_multi = packb(bin_signed_multi)
-    res = tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
+    res_valid = tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
 ##############################
     bsk, bvk = tools.getKeysFromSeed('Miner1')
-    block_msg = '1', tools.MsgType.BLOCK_MSG, [tx], 'TODO', 'TODO'
-    res = tools.Transaction.sendMsg(block_msg, bsk, bvk, "localhost", tools.Node.PORT_REP)
+    block_msg = '1', tools.MsgType.BLOCK_MSG, [tx, signed_tx_multi], 'TODO', 'TODO'
+    res_valid = tools.Transaction.sendMsg(block_msg, bsk, bvk, "localhost", tools.Node.PORT_REP)
+    if res_valid:
+        for msg in block_msg[2]:
+            print('Msg Validated', tools.validateMsg(packb(msg)))
 
+    exit(0)
 ##########################################
     ##from msgpack import packb, unpackb
     signed_msg = tools.signMsg(packb(tx[:-2]), SK)
