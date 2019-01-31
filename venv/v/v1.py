@@ -24,6 +24,16 @@ from queue import Queue
 
 class Test():
 
+    def deleteDir(self, path):
+        """deletes the path entirely"""
+        if sys.platform == "win32":
+            cmd = "RMDIR " + path + " /s /q"
+        else:
+            cmd = "rm -rf " + path
+        result = os.system(cmd)
+        print('res: %s cmd: %s' % (result, cmd))
+
+
     def getCaller(self):
         import inspect
         curframe = inspect.currentframe()
@@ -142,21 +152,23 @@ class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute_
     UNSPENT_TX = '+'    #b'+' #b'\x00'
     SPENT_TX = '-'      #b'-'   #b'\x01'
     PARENT_TX_MSG = '*' #b'*' #b'\x02'
+    PARENT_TX_MSG_MAX_SIZE = 1024
     SPEND_MULTI_SIG_TX = b'\x03'
     MINER_FEE_TX = b'\x04'
     MINER_ISSUE_TX = b'\x05'
-    BLOCK_MSG = b'\xb0'
-    VOTE_MSG = b'\xb1'
-    CONTRACT_TX = b'\xc0'
-    CONTRACT_CONFIRM_TX = b'\xc1'
-    CONTRACT_MSG = b'\xc2'
+    BLOCK_MSG = b'B' #b'\xb0'
+    BLOCK_MSG_MAX_SIZE = 4096
+    VOTE_MSG = b'V' #b'\xb1'
+    CONTRACT_TX = b'C' #b'\xc0'
+    CONTRACT_CONFIRM_TX = b'T' #b'\xc1'
+    CONTRACT_MSG = b'D' #b'\xc2'
     REGISTER_TX = b'\xe1'
-    EXCHANGE_TX = b'\x88'
-    ICO_TX = b'\xa6'
-    AGENT_TX = b'\xa7'
+    EXCHANGE_TX = b'E' #b'\x88'
+    ICO_TX = b'I' #b'\xa6'
+    AGENT_TX = b'A' #b'\xa7'
     INVOKE_TX = b'\xd1'
-    RELAY_TX = b'\xd2'
-    MSG_MSG = b'\xd3'
+    RELAY_TX = b'R' #b'\xd2'
+    MSG_MSG = b'M'  #b'\xd3'
 
 
     def isValidType(self, typeValue):
@@ -385,16 +397,18 @@ class Crypto():
             return signed_msg
         except Exception as ex:
             err_msg = 'Exception on sign msg: %s \n%s, %s' % (msg, Logger.exc_info(), ex)
-            self.logger.logp(err_msg, logging.ERROR)
+            ##self.logger.logp(err_msg, logging.ERROR)
+            tools.logger.logp(err_msg, logging.ERROR)
             return None
 
     def verifyMsgSig(self, signed_msg, VerifyingKey):
         '''Return True if msg verified, otherwise false'''
         try:
             verified_msg = VerifyingKey.verify(signed_msg)
+            print('MsgSigVerified: ', unpackb(verified_msg))
             return True, verified_msg
         except Exception as ex:
-            return False
+            return False, None
 
     def getPubAddr(self, VK):
         '''Return HMAC hash from pub_key/verify_key'''
@@ -504,7 +518,7 @@ class Transaction():
     def validateMsg(self, bin_msg): #used for tmp persistance handled by tasks
         #print('ValidateMsg...')
         try:
-            if len(bin_msg) > self.MsgType.MAX_MSG_SIZE_BYTES:
+            if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
                 return False
             unpacked_msg = unpackb(bin_msg)
             msg = tuple(unpackb(unpacked_msg[0]))
@@ -513,17 +527,21 @@ class Transaction():
                 return False
             # if not self.validateMsgSize(decoded_msg[1], bin_msg):
             #     return False
-            if decoded_msg[1] == self.MsgType.PARENT_TX_MSG:
+            if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
                if self.validateTX(decoded_msg, bin_msg[1], bin_msg[2]): #self.to_HMAC(bin_msg)
                    return decoded_msg
                else:
                    return False
-            elif msg[1] == self.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
+            elif msg[1] == tools.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
                 print('################## NEW BLOCK TODO ##################')
-                return msg
+                if not self.validateBlock(msg):
+                    return False
+                return msg #, unpacked_msg[-2], unpacked_msg[-1]
             else:
                 return False
         except Exception as ex:
+            #print(tools.logger.exc_info())
+            print('ErrorLine: ',ex.__traceback__.tb_lineno)
             return False
 
 
@@ -573,9 +591,11 @@ class Transaction():
     #     except Exception as ex:
     #         return None
 
-    def sendMsg(self, msg, sk, vk, host='localhost', port=7777):
+    def sendMsg(self, msg, host='localhost', port=7777):
         #TODO to continue with NewBlock ->New Wallet
-        signed_msg = tools.signMsg(packb(msg), sk)
+        sk = msg[-2]
+        vk = msg[-1]
+        signed_msg = tools.signMsg(packb(msg[0:-2]), sk)
         bin_signed_msg = (signed_msg.message, signed_msg.signature, vk._key)
         if bin_signed_msg is not None:
             return tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
@@ -765,17 +785,48 @@ class State():
         self.blockChain = {'last_block': None, 'last_block_state': None, 'current_block': None}
         self.taskRunner = {'task': set(), 'task_state': set()}
 
+
 class Block():
-    #def __init__(self):
+    def __init__(self):
         #self.logger = Logger('Block')
-        #self.version = "1"
-        #self.blockData = {'msg_hash': set(), 'itx': set(), 'from': set(), 'to': set(), '*': set()}
+        self.version = "1"
+        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'input_msgs': list, 'miner_sig': bytes, 'miner_pub_key': bytes}
+        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_msgs', 3: 'miner_sig', 4: 'miner_pub_key'}
 
     def sendBlock(self): #by MasterMiner
         pass
 
     def voteBlock(self):#to MasterMiner or NextOnDutyMiner
         pass
+
+
+    def validateBlock(self, block_msg):
+        #print('ValidateTX...')
+        try:
+            if not block_msg[1] is self.MsgType.BLOCK_MSG:
+                return False
+            if len(packb(block_msg[0:-2])) > self.MsgType.BLOCK_MSG_MAX_SIZE:
+                return False
+            if type(self) is Tools:
+                block_msg_fields = self.Block.BLOCK_MSG_FIELDS #TODO getMsgFields(msgType) + msgLimit
+                block_msg_fields_index = self.Block.BLOCK_MSG_FIELDS_INDEX
+                block_field_names = list(block_msg_fields_index.values())[:-2] #fields amount
+                for i in range(len(block_field_names)):
+                    field_value = block_msg[i]
+                    if type(field_value) is not block_msg_fields[block_field_names[i]]: #fields type
+                        return False
+                    if (type(field_value) is list):
+                        for list_value in field_value:
+                            restricted_list_types = [v for v in list_value if type(v) not in (bytes, str, list)] #list_fields type
+                            if len(restricted_list_types) > 0:
+                                return False
+                return True
+            else:
+                return False
+        except Exception as ex:
+            return False
+        return True
+
 
     def verifyBlock(self, msgtype_arr):
         to_persist_arr = []
@@ -1106,7 +1157,6 @@ class Node():
                 if not validated_msg or validated_msg is None:
                     print('Error: Msg Validation failed')
                     rep_socket.send(b'Error: Msg Validation failed')
-
                 print('validated_msg_TYPE: ', tools.MsgType.getMsgType(validated_msg[1]))
                 if validated_msg[1] == tools.MsgType.BLOCK_MSG:
                     print('OK: Msg is Valid')
@@ -1114,9 +1164,8 @@ class Node():
 
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
-                if validated_msg is not False and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
+                if validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
-                    #msg_hash = tools.Crypto.to_HMAC(rep_msg)
                     from_addr = tools.Crypto.to_HMAC(umsg[2])
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
                     values += [sqlite3.Binary(umsg[1]), sqlite3.Binary(umsg[2]), msg_hash, from_addr, 0, tools.utc()]
@@ -1142,16 +1191,19 @@ class Node():
                     # restored_msg
 #TODO to continue restored_msg[0] == validated_msg, packb(restored_msg) == rep_msg
 
-
-                    self.Q.put_nowait(msg) if insert else None
+                    #TODO Q
+                    self.Q.put_nowait(rep_msg) if insert else None
                     #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
-                    msg_hash = tools.Crypto.to_HMAC(packb(umsg))
-                    #print('msg hash: ', msg_hash)
-                    if tools.isDBvalue(msg, tools.NODE_DB) is not None:
+                    msg_hash = tools.Crypto.to_HMAC(rep_msg) #tools.Crypto.to_HMAC(unpackb(rep_msg)[0]) #tools.Crypto.to_HMAC(packb(umsg[0])) #tools.Crypto.to_HMAC(rep_msg)#tools.Crypto.to_HMAC(packb(umsg))
+                    print('msg hash: ', msg_hash)
+                    if tools.isDBvalue(msg_hash, tools.NODE_DB):
                         rep_socket.send(b'Error: Msg Exist')
-                    else:
-                        verified, verified_msg = tools.verifyMsgSig(umsg[0], umsg[2])
-                        rep_socket.send(b'OK: SigVerified')
+                    else: #TODO before persist + in Verify
+                        verified_sig, signed_msg = tools.verifyMsgSig(umsg[0], umsg[2])
+                        if verified_sig:
+                            rep_socket.send(b'OK: SigVerified')
+                        else:
+                            rep_socket.send(b'Error: Invalid Sig')
                 else:
                     error = "Msg Exist" if msg_in_db is not None else "Invalid Msg"
                     rep_socket.send(b'Error: ' + error.encode())
@@ -1296,10 +1348,10 @@ class Invoke():
 class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
     #import msgpack as mp
     def __init__(self):
-        self.version = Structure().version
+        self.version = Structure().version #TODO toolkit(tools(ver_num)
         self.config = Config()
         #self.Helper = Helper()
-        #self.logger = Logger() #TODO TO remove Doubles
+        #self.logger = Logger()
         self.ROOT_DIR = self.config.ROOT_DIR
         self.NODE_DB = self.config.NODE_DB
         self.NODE_SERVICE_DB = self.config.NODE_SERVICE_DB
@@ -1310,6 +1362,7 @@ class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Tran
         self.Crypto = Crypto()
         self.Network = Network()
         self.Node = Node()
+        self.Block = Block()
 
     def utc(self):
         return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
@@ -1419,11 +1472,19 @@ if __name__ == "__main__":
     #TODO sync time ->
     # sudo timedatectl set-ntp on;sudo timedatectl set-timezone America/New_York;
     # timedatectl; assert == both Network time on: and NTP synchronized: should read yes
-    Tools.p("v1.Tools running as a stand-alone script")
 
+    test = Test()
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    test.deleteDir(os.path.join(ROOT_DIR, '../db'))
+    test.deleteDir(os.path.join(ROOT_DIR, '../service_db'))
+    test.deleteDir(os.path.join(ROOT_DIR, '../logs'))
+
+
+    Tools.p("v1.Tools running as a stand-alone script -> DB,Logs folders created")
     tools = Tools()
     print('Tools version %s' % tools.version)
-    test = Test()
+
+
     SK, VK = tools.getKeysFromSeed('Bob')
     msg = b'msg'
     msg2 = b'msg2'
@@ -1455,7 +1516,13 @@ if __name__ == "__main__":
                                  signed_msg._signature, VK._key) #10000000000000.12345678
     #tools.str2floatb('999999999.12345678')
 
-###########
+    signed_msg = tools.signMsg(packb(tx[:-2]), SK)
+    bin_signed_msg = (signed_msg.message, signed_msg.signature, VK)
+    verified, verified_msg = tools.verifyMsgSig(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+    assert verified
+    assert VerifyKey(rec[0][1]) == VK
+
+    ###########
     multi_recv = []
     multi_amounts = []
     for i in range(1, 5):
@@ -1464,34 +1531,39 @@ if __name__ == "__main__":
         receiver_pub_addr = tools.getPubAddr(pub_k)
         multi_recv.append(receiver_pub_addr)
         multi_amounts.append(b'1')
-    unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], multi_recv, '1', multi_amounts, '1/1'
+    unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
+        unspent_input_genesis_tx], multi_recv, '1', multi_amounts, '1/1'
     signed_tx_multi = tools.signMsg(packb(unsigned_tx_multi), SK)
     bin_signed_multi = (signed_tx_multi.message, signed_tx_multi.signature, VK._key)
-    #tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
+    # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
+    verified_multi_sig = tools.verifyMsgSig(signed_tx_multi, VK) #Bob
+    assert verified_multi_sig[0]
+    print('tx_multi VK: ', VK._key)
+    print('tx_multi signed_tx_multi.message: ', signed_tx_multi.message)
     tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
     tx_bytes_multi = packb(bin_signed_multi)
     res_valid = tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
-##############################
+    print('multi tx resp: ', res_valid)
+    ##############################
     bsk, bvk = tools.getKeysFromSeed('Miner1')
-    block_msg = '1', tools.MsgType.BLOCK_MSG, [tx, signed_tx_multi], 'TODO', 'TODO'
-    res_valid = tools.Transaction.sendMsg(block_msg, bsk, bvk, "localhost", tools.Node.PORT_REP)
+    block_msg = ('1', tools.MsgType.BLOCK_MSG, [bin_signed_msg, bin_signed_multi])
+    block_signed_msg = tools.signMsg(packb(block_msg[:-2]), bsk)
+    block_bin_signed_msg = (block_signed_msg.message, block_signed_msg.signature, bvk)
+    res_valid = tools.Transaction.sendMsg(block_bin_signed_msg, "localhost", tools.Node.PORT_REP)
+    print('block tx resp: ', res_valid)
     if res_valid:
         for msg in block_msg[2]:
-            print('Msg Validated', tools.validateMsg(packb(msg)))
-
+            msg_sig_pk = msg[0:-2], msg[-2], msg[-1]
+            print('Msg Validated', tools.validateMsg(packb(msg_sig_pk)))
+    # verified = tools.verifyBlock(block_msg)
     exit(0)
-##########################################
-    ##from msgpack import packb, unpackb
-    signed_msg = tools.signMsg(packb(tx[:-2]), SK)
-    bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
-    verified, verified_msg = tools.verifyMsgSig(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
-    assert verified
-    assert VerifyKey(rec[0][1]) == VK
+    ##########################################
+
+
     tx_hash = tools.Crypto.to_HMAC(packb(bin_signed_msg)) #tools.s(tx[1]) +
     tx_bytes = packb(bin_signed_msg)
     ##tools.validateMsg(tx_bytes) #Test
     ##tools.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB) #GENESIS
-
     tools.insertDbTx(bin_signed_msg)
 
     ##print(tools.getDB(tools.b(tx_hash), tools.NODE_DB))
