@@ -12,7 +12,7 @@ from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
 from nacl.public import Box, PrivateKey, PublicKey
 from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, \
     crypto_sign_seed_keypair as keys_from_seed
-from nacl.signing import SigningKey, VerifyKey
+from nacl.signing import SigningKey, VerifyKey, SignedMessage
 from Crypto.Hash import SHA256, HMAC, RIPEMD
 from decimal import Decimal
 
@@ -404,10 +404,15 @@ class Crypto():
     def verifyMsgSig(self, signed_msg, VerifyingKey):
         '''Return True if msg verified, otherwise false'''
         try:
-            verified_msg = VerifyingKey.verify(signed_msg)
+            SM = SignedMessage(signed_msg) if type(signed_msg) is not SignedMessage else signed_msg
+            VK = VerifyKey(VerifyingKey) if type(VerifyingKey) is not VerifyKey else VerifyingKey
+            print('SM', SM)
+            print('VK', VK)
+            verified_msg = VK.verify(SM)
             print('MsgSigVerified: ', unpackb(verified_msg))
             return True, verified_msg
         except Exception as ex:
+            print('ErrorLine: ', ex.__traceback__.tb_lineno)
             return False, None
 
     def getPubAddr(self, VK):
@@ -527,8 +532,10 @@ class Transaction():
                 return False
             # if not self.validateMsgSize(decoded_msg[1], bin_msg):
             #     return False
+            if type(unpacked_msg[2]) is not VerifyKey:
+                vk = VerifyKey(unpacked_msg[2])
             if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
-               if self.validateTX(decoded_msg, bin_msg[1], bin_msg[2]): #self.to_HMAC(bin_msg)
+               if self.validateTX(decoded_msg, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
                    return decoded_msg
                else:
                    return False
@@ -558,10 +565,12 @@ class Transaction():
             for i in range(len(tx_field_names)):
                 field_value = tx_msg[i]
                 if type(field_value) is not tx_msg_fields[tx_field_names[i]]: #fields type
+                    print('ERROR: field type %s, expected %s' % (type(field_value), tx_msg_fields[tx_field_names[i]]))
                     return False
                 if (type(field_value) is list):
                     restricted_list_types = [v for v in field_value if type(v) not in (bytes, str)] #list_fields type
                     if len(restricted_list_types) > 0:
+                        print('ERROR: restricted_list_types %s', restricted_list_types)
                         return False
         except Exception as ex:
             return False
@@ -1198,7 +1207,10 @@ class Node():
                     print('msg hash: ', msg_hash)
                     if tools.isDBvalue(msg_hash, tools.NODE_DB):
                         rep_socket.send(b'Error: Msg Exist')
-                    else: #TODO before persist + in Verify
+                    else: #TODO after persist + in Verify
+                        #TODO ? tools.verifyMsgSig(SignedMessage(umsg[0]), VerifyKey(umsg[2]))
+                        print('signed_msg after  req', umsg[0])
+                        print('signed_msg req: ', unpackb(umsg[0])) #TODO ToFIX SignedMsg
                         verified_sig, signed_msg = tools.verifyMsgSig(umsg[0], umsg[2])
                         if verified_sig:
                             rep_socket.send(b'OK: SigVerified')
@@ -1517,10 +1529,15 @@ if __name__ == "__main__":
     #tools.str2floatb('999999999.12345678')
 
     signed_msg = tools.signMsg(packb(tx[:-2]), SK)
-    bin_signed_msg = (signed_msg.message, signed_msg.signature, VK)
-    verified, verified_msg = tools.verifyMsgSig(signed_msg, VK) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+    print('signed_msg before req' , signed_msg)
+    verified, verified_msg = tools.verifyMsgSig(signed_msg, VK._key) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
     assert verified
     assert VerifyKey(rec[0][1]) == VK
+    bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
+    tx_bytes = packb(bin_signed_msg)
+    res_valid = tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+    print('genesis tx resp: ', res_valid)
+    assert res_valid
 
     ###########
     multi_recv = []
@@ -1534,16 +1551,17 @@ if __name__ == "__main__":
     unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
         unspent_input_genesis_tx], multi_recv, '1', multi_amounts, '1/1'
     signed_tx_multi = tools.signMsg(packb(unsigned_tx_multi), SK)
-    bin_signed_multi = (signed_tx_multi.message, signed_tx_multi.signature, VK._key)
+    bin_signed_multi = (signed_tx_multi.message, signed_tx_multi.signature, VK)
     # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
     verified_multi_sig = tools.verifyMsgSig(signed_tx_multi, VK) #Bob
     assert verified_multi_sig[0]
     print('tx_multi VK: ', VK._key)
     print('tx_multi signed_tx_multi.message: ', signed_tx_multi.message)
-    tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
+    ##tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
     tx_bytes_multi = packb(bin_signed_multi)
     res_valid = tools.sendMsgZmqReq(tx_bytes_multi, 'localhost', tools.Node.PORT_REP)
     print('multi tx resp: ', res_valid)
+    assert res_valid
     ##############################
     bsk, bvk = tools.getKeysFromSeed('Miner1')
     block_msg = ('1', tools.MsgType.BLOCK_MSG, [bin_signed_msg, bin_signed_multi])
