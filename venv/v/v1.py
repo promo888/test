@@ -525,7 +525,7 @@ class Transaction():
         try:
             if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
                 return False
-            #TODO if msg is list -> type(unpackb(bin_msg)) is list
+            #TODO if msg is list -> type(unpackb(bin_msg)) is list -> elem unpackb is Tuple
             unpacked_msg = unpackb(bin_msg)
             msg = tuple(unpackb(unpacked_msg[0]))
             decoded_msg = self.decodeMsg(msg)
@@ -601,14 +601,14 @@ class Transaction():
     #     except Exception as ex:
     #         return None
 
-    def sendMsg(self, msg, host='localhost', port=7777):
+    def sendMsg(self, bin_signed_msg, host='localhost', port=7777):
         #TODO to continue with NewBlock ->New Wallet
-        sk = msg[1] if type(msg[1]) is SigningKey else SigningKey(msg[1])
-        vk = msg[2] if type(msg[2]) is VerifyKey else VerifyKey(msg[2])
-        signed_msg = tools.signMsg(packb(msg[0]), sk)
-        bin_signed_msg = (signed_msg.message, vk._key)
+        #sk = msg[1] if type(msg[1]) is SigningKey else SigningKey(msg[1])
+        #vk = msg[2] if type(msg[2]) is VerifyKey else VerifyKey(msg[2])
+        #signed_msg = tools.signMsg(packb(msg[0]), sk)
+        #bin_signed_msg = (signed_msg.message, vk._key)if
         if bin_signed_msg is not None:
-            return tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
+            return tools.sendMsgZmqReq(bin_signed_msg, host, port)
 
     def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, seed=None, host=None, port=None,sendTx=True):
         bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, seed=seed)
@@ -1565,9 +1565,9 @@ if __name__ == "__main__":
     ##############################
     bsk, bvk = tools.getKeysFromSeed('Miner1')
     block_msg = ('1', tools.MsgType.BLOCK_MSG, [bin_signed_msg, bin_signed_multi])
-    block_signed_msg = tools.signMsg(packb(block_msg[0]), bsk)
-    block_bin_signed_msg = (block_signed_msg, bsk, bvk._key)
-    res_valid = tools.Transaction.sendMsg(block_bin_signed_msg, "localhost", tools.Node.PORT_REP)
+    block_signed_msg = tools.signMsg(packb(block_msg), bsk)
+    block_signed_msg_vk = (block_signed_msg, bvk._key)
+    res_valid = tools.Transaction.sendMsg(packb(block_signed_msg_vk), "localhost", tools.Node.PORT_REP)
     print('block tx resp: ', res_valid)
     if res_valid:
         for msg in block_msg[2]:
