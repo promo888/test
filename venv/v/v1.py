@@ -78,9 +78,7 @@ class Test():
                    'output_txs'	TEXT NOT NULL,
                    'to_addrs'	TEXT NOT NULL,
                    'asset_type'	TEXT NOT NULL,
-                   'amounts'	TEXT NOT NULL,
-                   'sig_type'	TEXT NOT NULL,
-                   'sigs'	    BLOB NOT NULL,                 
+                   'amounts'	TEXT NOT NULL,                                               
                    'pub_keys'	BLOB NOT NULL,
                    'msg_hash'   TEXT NOT NULL, 
                    'from_addr'	TEXT NOT NULL,
@@ -90,6 +88,7 @@ class Test():
                    
                );
                '''
+#TODO sigtype is required on create MultiSig Wallet + MultiSigTx
 
             sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
             con = self.getServiceDb() #ServiceDb().getServiceDB()
@@ -237,7 +236,7 @@ class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute_
 
 # class MsgType:
 #     SPEND_TX_MSG_FIELDS = (
-#     'ver_num', 'msg_type', 'sigs', 'sig_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr', 'to_addrs',
+#     'ver_num', 'msg_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr', 'to_addrs',
 #     'asset_type', 'amounts', 'ts', )
 
 
@@ -439,11 +438,11 @@ class Transaction():
         self.version = "1"
 
         self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, #'output_txs': list, # 'from_addr': str,->Multisig
-                              'to_addrs': list, 'asset_type': str, 'amounts': list, 'sig_type': str, 'sigs': bytes, 'pub_keys': bytes}
+                              'to_addrs': list, 'asset_type': str, 'amounts': list, 'pub_keys': bytes}
         self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_txs', 3: 'to_addrs',
-                                    4: 'asset_type', 5: 'amounts', 6: 'sig_type', 7: 'sigs', 8: 'pub_keys'}
+                                    4: 'asset_type', 5: 'amounts', 6: 'pub_keys'}
 
-    def setTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys): #output_txs,
+    def setTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys): #output_txs,
         tx = ()
         tx += (ver_num,)
         tx += (msg_type,)
@@ -453,8 +452,9 @@ class Transaction():
         tx += (asset_type,)
         tx += (amounts,) # = Decimal('100000000000.1234567890') #TODO from decimal import Decimal; type(d) is Decimal #len('100000000000.1234567890'.encode()) MAX_LEN 21 + .8n
         #TODO continue len(str(amounts[0]).split('.')[1]) , '100000000000.12345678' 21chars + < b108 MAX_SUPPLY
-        tx += (sig_type,)
-        tx += (sigs,)
+        #TODO sig_type,sigs for MultiWalletTX
+        #tx += (sig_type,)
+        #tx += (sigs,)
         tx += (pub_keys,)
         return tx #validateTX(tx)
     #len((639).to_bytes(2, 'little').decode()) == 2
@@ -525,6 +525,7 @@ class Transaction():
         try:
             if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
                 return False
+            #TODO if msg is list -> type(unpackb(bin_msg)) is list
             unpacked_msg = unpackb(bin_msg)
             msg = tuple(unpackb(unpacked_msg[0]))
             decoded_msg = self.decodeMsg(msg)
@@ -532,8 +533,8 @@ class Transaction():
                 return False
             # if not self.validateMsgSize(decoded_msg[1], bin_msg):
             #     return False
-            if type(unpacked_msg[2]) is not VerifyKey:
-                vk = VerifyKey(unpacked_msg[2])
+            if type(unpacked_msg[1]) is not VerifyKey:
+                vk = VerifyKey(unpacked_msg[1])
             if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
                if self.validateTX(decoded_msg, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
                    return decoded_msg
@@ -577,9 +578,9 @@ class Transaction():
         return True
 
 #tools
-    def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs=[b"*" * 64], pub_keys=[b"*" * 32], seed=b"*" * 32):
+    def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys=[b"*" * 32], seed=b"*" * 32):
         try:
-            tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys)
+            tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys)
             if tx is not None and self.validateTX(tx):
                 sk, vk = tools.getKeysFromSeed(seed)
                 signed_msg = tools.signMsg(packb(tx[:-2]), sk)
@@ -589,9 +590,9 @@ class Transaction():
             return None
 
     #
-    # def signTX(self, tx_msg, sigs=b"*" * 64, pub_keys=b"*" * 32, seed=b"*" * 32):
+    # def signTX(self, tx_msg, pub_keys=b"*" * 32, seed=b"*" * 32):
     #     try:
-    #         tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys)
+    #         tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys)
     #         if tx is not None and self.validateTX(tx):
     #             sk, vk = tools.getKeysFromSeed(seed)
     #             signed_msg = tools.signMsg(packb(tx[0]), sk)
@@ -602,15 +603,15 @@ class Transaction():
 
     def sendMsg(self, msg, host='localhost', port=7777):
         #TODO to continue with NewBlock ->New Wallet
-        sk = msg[-2]
-        vk = msg[-1]
-        signed_msg = tools.signMsg(packb(msg[0:-2]), sk)
-        bin_signed_msg = (signed_msg.message, signed_msg.signature, vk._key)
+        sk = msg[1] if type(msg[1]) is SigningKey else SigningKey(msg[1])
+        vk = msg[2] if type(msg[2]) is VerifyKey else VerifyKey(msg[2])
+        signed_msg = tools.signMsg(packb(msg[0]), sk)
+        bin_signed_msg = (signed_msg.message, vk._key)
         if bin_signed_msg is not None:
             return tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
 
-    def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=None, host=None, port=None,sendTx=True):
-        bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, seed=seed)
+    def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, seed=None, host=None, port=None,sendTx=True):
+        bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
             if sendTx and bin_signed_msg is not None:
                 tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
@@ -890,9 +891,7 @@ class ServiceDb():
                            'input_txs'	TEXT NOT NULL,
                            'to_addrs'	TEXT NOT NULL,
                            'asset_type'	TEXT NOT NULL,
-                           'amounts'	TEXT NOT NULL,
-                           'sig_type'	TEXT NOT NULL,
-                           'sigs'	    BLOB NOT NULL,                 
+                           'amounts'	TEXT NOT NULL,                                         
                            'pub_keys'	BLOB NOT NULL,
                            'msg_hash'   TEXT NOT NULL,
                            'from_addr'	TEXT NOT NULL,
@@ -1175,18 +1174,18 @@ class Node():
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 if validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
-                    from_addr = tools.Crypto.to_HMAC(umsg[2])
+                    from_addr = tools.Crypto.to_HMAC(umsg[1])
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
-                    values += [sqlite3.Binary(umsg[1]), sqlite3.Binary(umsg[2]), msg_hash, from_addr, 0, tools.utc()]
+                    values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
                     #ServiceDb().getServiceDB().
                     insert = tools.SERVICE_DB.insertServiceDBpendingTX(
                         "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, "
-                        "asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, "
-                        "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                        "asset_type, amounts, pub_keys, msg_hash, from_addr, "
+                        "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,) ",
                         values)
 
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
-                    #     "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, sig_type, sigs, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                    #     "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                     #     values)
                     # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
 
@@ -1211,11 +1210,12 @@ class Node():
                         #TODO ? tools.verifyMsgSig(SignedMessage(umsg[0]), VerifyKey(umsg[2]))
                         print('signed_msg after  req', umsg[0])
                         print('signed_msg req: ', unpackb(umsg[0])) #TODO ToFIX SignedMsg
-                        verified_sig, signed_msg = tools.verifyMsgSig(umsg[0], umsg[2])
-                        if verified_sig:
-                            rep_socket.send(b'OK: SigVerified')
-                        else:
-                            rep_socket.send(b'Error: Invalid Sig')
+                        ##verified_sig, signed_msg = tools.verifyMsgSig(umsg[0], umsg[2])
+                        ##if verified_sig:
+                        ##    rep_socket.send(b'OK: SigVerified')
+                        ##else:
+                        ##    rep_socket.send(b'Error: Invalid Sig')
+                        rep_socket.send(b'OK: Msg is Valid')
                 else:
                     error = "Msg Exist" if msg_in_db is not None else "Invalid Msg"
                     rep_socket.send(b'Error: ' + error.encode())
@@ -1524,16 +1524,16 @@ if __name__ == "__main__":
     bf = tools.strdecimal2bytes('999999999.12345678')
     sf = tools.bdecimal2str(bf)
     tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                                 [pub_addr], '1', [b'999999999.12345678'], '1/1',
-                                 signed_msg._signature, VK._key) #10000000000000.12345678
+                                 [pub_addr], '1', [b'999999999.12345678'],
+                                 VK._key) #10000000000000.12345678
     #tools.str2floatb('999999999.12345678')
 
     signed_msg = tools.signMsg(packb(tx[:-2]), SK)
-    print('signed_msg before req' , signed_msg)
+    print('signed_msg before req', signed_msg)
     verified, verified_msg = tools.verifyMsgSig(signed_msg, VK._key) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
     assert verified
     assert VerifyKey(rec[0][1]) == VK
-    bin_signed_msg = (signed_msg.message, signed_msg.signature, VK._key)
+    bin_signed_msg = (signed_msg.message, VK._key)
     tx_bytes = packb(bin_signed_msg)
     res_valid = tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
     print('genesis tx resp: ', res_valid)
@@ -1551,7 +1551,7 @@ if __name__ == "__main__":
     unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
         unspent_input_genesis_tx], multi_recv, '1', multi_amounts, '1/1'
     signed_tx_multi = tools.signMsg(packb(unsigned_tx_multi), SK)
-    bin_signed_multi = (signed_tx_multi.message, signed_tx_multi.signature, VK)
+    bin_signed_multi = (signed_tx_multi.message, VK._key)
     # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
     verified_multi_sig = tools.verifyMsgSig(signed_tx_multi, VK) #Bob
     assert verified_multi_sig[0]
@@ -1565,14 +1565,14 @@ if __name__ == "__main__":
     ##############################
     bsk, bvk = tools.getKeysFromSeed('Miner1')
     block_msg = ('1', tools.MsgType.BLOCK_MSG, [bin_signed_msg, bin_signed_multi])
-    block_signed_msg = tools.signMsg(packb(block_msg[:-2]), bsk)
-    block_bin_signed_msg = (block_signed_msg.message, block_signed_msg.signature, bvk)
+    block_signed_msg = tools.signMsg(packb(block_msg[0]), bsk)
+    block_bin_signed_msg = (block_signed_msg, bsk, bvk._key)
     res_valid = tools.Transaction.sendMsg(block_bin_signed_msg, "localhost", tools.Node.PORT_REP)
     print('block tx resp: ', res_valid)
     if res_valid:
         for msg in block_msg[2]:
-            msg_sig_pk = msg[0:-2], msg[-2], msg[-1]
-            print('Msg Validated', tools.validateMsg(packb(msg_sig_pk)))
+            msg_pk = msg[0], msg[1]
+            print('Msg Validated', tools.validateMsg(packb(msg_pk)))
     # verified = tools.verifyBlock(block_msg)
     exit(0)
     ##########################################
