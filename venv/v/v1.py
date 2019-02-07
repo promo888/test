@@ -408,11 +408,12 @@ class Crypto():
             if type(signed_msg) is not SignedMessage:
                 SM = SignedMessage(signed_msg)
             if type(VerifyingKey) is not VerifyKey:
-                VK = VerifyKey(VerifyingKey)
-            print('SM', SM)
-            print('VK', VK)
+                VK = VerifyKey(VerifyingKey) #TODO assert VerifyKey(signed_msg[-32:]) == VK
+            #print('SM', SM)
+            #print('VK', VK)
+            #print('Unpacked MsgType: ', type(unpackb(signed_msg)))
             verified_msg = VK.verify(SM)
-            print('MsgSigVerified: ', unpackb(verified_msg))
+            print('MsgSigVerified: ', type(unpackb(verified_msg)), unpackb(verified_msg))
             #TODO check if msg[0] is list|tuple unsigned tx list|signed_tx_list utx|stx
             #sigVerified, signedMsg =tools.verifyMsgSig( block_signed_msg_vk[0], bvk)
             #unsigned_ptx = unpackb(signedMsg)
@@ -529,7 +530,6 @@ class Transaction():
                 return False
         except Exception as ex:
             print('ErrorLine: ', ex.__traceback__.tb_lineno)
-
             return False
 
 
@@ -1194,7 +1194,7 @@ class Node():
                     insert = tools.SERVICE_DB.insertServiceDBpendingTX(
                         "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, "
                         "asset_type, amounts, pub_keys, msg_hash, from_addr, "
-                        "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,) ",
+                        "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
                         values)
 
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
@@ -1221,8 +1221,8 @@ class Node():
                         rep_socket.send(b'Error: Msg Exist')
                     else: #TODO after persist + in Verify
                         #TODO ? tools.verifyMsgSig(SignedMessage(umsg[0]), VerifyKey(umsg[2]))
-                        print('signed_msg after  req', umsg[0])
-                        print('signed_msg req: ', unpackb(umsg[0])) #TODO ToFIX SignedMsg
+                        #print('signed_msg after  req', umsg[0])
+                        #print('signed_msg req: ', unpackb(umsg[0])) #TODO ToFIX SignedMsg
                         ##verified_sig, signed_msg = tools.verifyMsgSig(umsg[0], umsg[2])
                         ##if verified_sig:
                         ##    rep_socket.send(b'OK: SigVerified')
@@ -1579,11 +1579,11 @@ if __name__ == "__main__":
     bsk, bvk = tools.getKeysFromSeed('Miner1')
     block_msg = '1', tools.MsgType.BLOCK_MSG, [bin_signed_msg, signed_multi_tx_vk]
     block_signed_msg = tools.signMsg(packb(block_msg), bsk)
-    block_signed_msg_vk = (block_signed_msg.message, bvk._key)
-    vres, dmsg = tools.verifyMsgSig(packb(block_signed_msg_vk), bvk)
-    assert vres
+    block_signed_msg_vk = (block_signed_msg.message, bvk._key) #TODO vk is last 32bit
+    vres, dmsg = tools.verifyMsgSig(block_signed_msg, bvk) #bvk.verify(block_signed_msg)
+    assert vres #TODO persistBlock(priority=100) serviceDB
     print('Block TX is Valid')
-    res_valid = tools.Transaction.sendMsg(packb(block_signed_msg_vk), "localhost", tools.Node.PORT_REP)
+    res_valid = tools.Transaction.sendMsg(packb(block_signed_msg), "localhost", tools.Node.PORT_REP)
     print('block tx resp: ', res_valid)
     if res_valid and dmsg is not None:
         for msg in block_msg[2]:
