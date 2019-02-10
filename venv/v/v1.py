@@ -553,6 +553,7 @@ class Transaction():
             elif msg[1] == tools.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
                 print('################## NEW BLOCK TODO ##################')
                 return self.validateBlock(msg)
+                #TODO insert SDB block
                 #return msg #, unpacked_msg[-2], unpacked_msg[-1]
             else:
                 return False
@@ -1181,7 +1182,7 @@ class Node():
                 msgType = validated_msg[1]
                 if isinstance(validated_msg[1], bytes):
                     msgType = unpackb(validated_msg[1])
-                print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
+               # print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
                 #TODO to continue
                 if validated_msg[1] == tools.MsgType.BLOCK_MSG:
                     print('OK: Msg is Valid')
@@ -1589,13 +1590,18 @@ if __name__ == "__main__":
     block_signed_msg_vk = (block_signed_msg.message, bvk._key) #TODO vk is last 32bit
     vres, dmsg = tools.verifyMsgSig(block_signed_msg, bvk) #bvk.verify(block_signed_msg)
     assert vres #TODO persistBlock(priority=100) serviceDB
-    print('Block TX is Valid')
+    print('Block Sig is Valid')
+
     res_valid = tools.Transaction.sendMsg(packb(block_signed_msg_vk), "localhost", tools.Node.PORT_REP)
     print('block tx resp: ', res_valid)
-    if res_valid and dmsg is not None:
-        for msg in block_msg[2]:
-            msg_pk = msg[0], msg[1]
-            print('Msg Validated', tools.validateMsg(packb(msg_pk)))
+
+#    if res_valid and dmsg is not None:
+#        for msg in block_msg[2]:#todo txs_fields_index
+#            in_sdb = tools.getServiceDbTx(msg)
+#            in_db = tools.getDbRec(msg, tools.DB.DB_PATH)
+
+           # msg_pk = msg[0], msg[1]
+           # print('Msg Validated', tools.validateMsg(packb(msg_pk)))
     # verified = tools.verifyBlock(block_msg)
     exit(0)
     ##########################################
@@ -1618,7 +1624,8 @@ if __name__ == "__main__":
     # for i in range(10000):
     #     tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
     # print('End  : ', tools.utc(), 'Duration: ', time.time() - start, 'secs')
-    tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+
+    #tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
 
     # tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
     #                              [pub_addr], '1', [b'999999999.12345678'], '98/99', "Bob", "localhost", tools.Node.PORT_REP)
