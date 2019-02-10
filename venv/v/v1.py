@@ -549,15 +549,11 @@ class Transaction():
             if type(unpacked_msg[1]) is not VerifyKey:
                 vk = VerifyKey(unpacked_msg[1])
             if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
-               if self.validateTX(decoded_msg, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
-                   return decoded_msg
-               else:
-                   return False
+               return self.validateTX(decoded_msg) #, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
             elif msg[1] == tools.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
                 print('################## NEW BLOCK TODO ##################')
-                if not self.validateBlock(msg):
-                    return False
-                return msg #, unpacked_msg[-2], unpacked_msg[-1]
+                return self.validateBlock(msg)
+                #return msg #, unpacked_msg[-2], unpacked_msg[-1]
             else:
                 return False
         except Exception as ex:
@@ -566,7 +562,7 @@ class Transaction():
             return False
 
 
-    def validateTX(self, tx_msg, sig=None, pub_key=None, verifyTX=False):
+    def validateTX(self, tx_msg, pub_key=None, verifyTX=False):
         #print('ValidateTX...')
         try:
             if type(self) is Tools:
@@ -586,9 +582,10 @@ class Transaction():
                     if len(restricted_list_types) > 0:
                         print('ERROR: restricted_list_types %s', restricted_list_types)
                         return False
+            return tx_msg
         except Exception as ex:
             return False
-        return True
+
 
 #tools
     def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys=[b"*" * 32], seed=b"*" * 32):
@@ -813,8 +810,8 @@ class Block():
     def __init__(self):
         #self.logger = Logger('Block')
         self.version = "1"
-        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'input_msgs': list, 'miner_sig': bytes, 'miner_pub_key': bytes}
-        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_msgs', 3: 'miner_sig', 4: 'miner_pub_key'}
+        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'input_msgs': list, 'miner_pub_key': bytes}
+        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_msgs', 3: 'miner_pub_key'}
 
     def sendBlock(self): #by MasterMiner
         pass
@@ -828,27 +825,30 @@ class Block():
         try:
             if not block_msg[1] is self.MsgType.BLOCK_MSG:
                 return False
-            if len(packb(block_msg[0:-2])) > self.MsgType.BLOCK_MSG_MAX_SIZE:
-                return False
+            if len(packb(block_msg)) > self.MsgType.BLOCK_MSG_MAX_SIZE:
+                return False #TODO with key
             if type(self) is Tools:
                 block_msg_fields = self.Block.BLOCK_MSG_FIELDS #TODO getMsgFields(msgType) + msgLimit
                 block_msg_fields_index = self.Block.BLOCK_MSG_FIELDS_INDEX
-                block_field_names = list(block_msg_fields_index.values())[:-2] #fields amount
-                for i in range(len(block_field_names)):
+                block_field_names = list(block_msg_fields_index.values()) #[0] #fields amount
+                for i in range(len(block_field_names)-1):
                     field_value = block_msg[i]
                     if type(field_value) is not block_msg_fields[block_field_names[i]]: #fields type
                         return False
                     if (type(field_value) is list):
-                        for list_value in field_value:
-                            restricted_list_types = [v for v in list_value if type(v) not in (bytes, str, list)] #list_fields type
-                            if len(restricted_list_types) > 0:
+                        for msg in field_value:
+                            #restricted_list_types = [v for v in list_value if type(v) not in (bytes, str, list)] #list_fields type
+                            #if len(restricted_list_types) > 0:
+                                 #return False
+                            if len(msg) != 32 or type(msg) is not bytes:
                                 return False
-                return True
+                return block_msg
             else:
                 return False
         except Exception as ex:
+            print('ErrorLine: ', ex.__traceback__.tb_lineno)
             return False
-        return True
+
 
 
     def verifyBlock(self, msgtype_arr):
@@ -1178,7 +1178,11 @@ class Node():
                 if not validated_msg or validated_msg is None:
                     print('Error: Msg Validation failed')
                     rep_socket.send(b'Error: Msg Validation failed')
-                print('validated_msg_TYPE: ', tools.MsgType.getMsgType(validated_msg[1]))
+                msgType = validated_msg[1]
+                if isinstance(validated_msg[1], bytes):
+                    msgType = unpackb(validated_msg[1])
+                print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
+                #TODO to continue
                 if validated_msg[1] == tools.MsgType.BLOCK_MSG:
                     print('OK: Msg is Valid')
                     rep_socket.send(b'OK: Msg is Valid')
@@ -1562,7 +1566,7 @@ if __name__ == "__main__":
         multi_recv.append(receiver_pub_addr)
         multi_amounts.append(b'1')
     unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
-        unspent_input_genesis_tx], multi_recv, '1', multi_amounts, '1/1'
+        unspent_input_genesis_tx], multi_recv, '1', multi_amounts,
     signed_multi_tx = tools.signMsg(packb(unsigned_tx_multi), SK)
     signed_multi_tx_vk = (signed_multi_tx.message, VK._key)
     # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
@@ -1572,18 +1576,21 @@ if __name__ == "__main__":
     print('tx_multi signed_tx_multi.message: ', signed_multi_tx.message)
     ##tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
     signed_multi_tx_vk_bytes = packb(signed_multi_tx_vk)
+    signed_multi_tx_vk_bytes_hash = tools.to_HMAC(signed_multi_tx_vk_bytes)
     res_valid = tools.sendMsgZmqReq(signed_multi_tx_vk_bytes, 'localhost', tools.Node.PORT_REP)
     print('multi tx resp: ', res_valid)
     assert res_valid
     ##############################
     bsk, bvk = tools.getKeysFromSeed('Miner1')
-    block_msg = '1', tools.MsgType.BLOCK_MSG, [bin_signed_msg, signed_multi_tx_vk]
+    tx_arr_bin = [bin_signed_msg, signed_multi_tx_vk]
+    tx_hash_arr = [signed_multi_tx_vk_bytes_hash]
+    block_msg = '1', tools.MsgType.BLOCK_MSG, tx_hash_arr
     block_signed_msg = tools.signMsg(packb(block_msg), bsk)
     block_signed_msg_vk = (block_signed_msg.message, bvk._key) #TODO vk is last 32bit
     vres, dmsg = tools.verifyMsgSig(block_signed_msg, bvk) #bvk.verify(block_signed_msg)
     assert vres #TODO persistBlock(priority=100) serviceDB
     print('Block TX is Valid')
-    res_valid = tools.Transaction.sendMsg(packb(block_signed_msg), "localhost", tools.Node.PORT_REP)
+    res_valid = tools.Transaction.sendMsg(packb(block_signed_msg_vk), "localhost", tools.Node.PORT_REP)
     print('block tx resp: ', res_valid)
     if res_valid and dmsg is not None:
         for msg in block_msg[2]:
