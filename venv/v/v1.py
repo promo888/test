@@ -1190,7 +1190,8 @@ class Node():
 
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
-                if validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
+                msg_in_sdb = tools.getServiceDbTx(msg_hash)
+                if not msg_in_sdb and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
                     from_addr = tools.Crypto.to_HMAC(umsg[1])
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
