@@ -965,7 +965,7 @@ class ServiceDb():
             return None
 
 
-    def insertServiceDBpendingTX(self, sql, *params):
+    def insertServiceDB(self, sql, *params):
         try:
             if self.SERVICE_DB is None:
                 self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None, check_same_thread=False) #TODO ConfigMap
@@ -1197,7 +1197,7 @@ class Node():
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
                     values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
                     #ServiceDb().getServiceDB().
-                    insert = tools.SERVICE_DB.insertServiceDBpendingTX(
+                    insert = tools.SERVICE_DB.insertServiceDB(
                         "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, "
                         "asset_type, amounts, pub_keys, msg_hash, from_addr, "
                         "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
