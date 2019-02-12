@@ -74,12 +74,12 @@ class Test():
                    CREATE TABLE IF NOT EXISTS 'v1_pending_tx' (
                    'ver_num'	TEXT NOT NULL,
                    'msg_type'	TEXT NOT NULL,
-                   'input_txs'	TEXT NOT NULL,
+                   'tx_list'	TEXT NOT NULL,
                    'output_txs'	TEXT NOT NULL,
                    'to_addrs'	TEXT NOT NULL,
                    'asset_type'	TEXT NOT NULL,
-                   'amounts'	TEXT NOT NULL,                                               
-                   'pub_keys'	BLOB NOT NULL,
+                   'amount_list'	TEXT NOT NULL,                                               
+                   'pub_keys_list'	BLOB NOT NULL,
                    'msg_hash'   TEXT NOT NULL, 
                    'from_addr'	TEXT NOT NULL,
                    'node_verified'	INTEGER DEFAULT 0,
@@ -236,8 +236,8 @@ class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute_
 
 # class MsgType:
 #     SPEND_TX_MSG_FIELDS = (
-#     'ver_num', 'msg_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr', 'to_addrs',
-#     'asset_type', 'amounts', 'ts', )
+#     'ver_num', 'msg_type', 'pub_keys_list', 'tx_list', 'output_txs', 'from_addr', 'to_addrs',
+#     'asset_type', 'amount_list', 'ts', )
 
 
 
@@ -449,25 +449,25 @@ class Transaction():
         #self.logger = Logger('Transaction')
         self.version = "1"
 
-        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'input_txs': list, #'output_txs': list, # 'from_addr': str,->Multisig
-                              'to_addrs': list, 'asset_type': str, 'amounts': list, 'pub_keys': bytes}
-        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_txs', 3: 'to_addrs',
-                                    4: 'asset_type', 5: 'amounts', 6: 'pub_keys'}
+        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'tx_list': list, #'output_txs': list, # 'from_addr': str,->Multisig
+                              'to_addrs': list, 'asset_type': str, 'amount_list': list, 'pub_keys_list': bytes}
+        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'tx_list', 3: 'to_addrs',
+                                    4: 'asset_type', 5: 'amount_list', 6: 'pub_keys_list'}
 
-    def setTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys): #output_txs,
+    def setTX(self, ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list): #output_txs,
         tx = ()
         tx += (ver_num,)
         tx += (msg_type,)
-        tx += (input_txs,)
+        tx += (tx_list,)
 #        tx += (output_txs,)
         tx += (to_addrs,)
         tx += (asset_type,)
-        tx += (amounts,) # = Decimal('100000000000.1234567890') #TODO from decimal import Decimal; type(d) is Decimal #len('100000000000.1234567890'.encode()) MAX_LEN 21 + .8n
-        #TODO continue len(str(amounts[0]).split('.')[1]) , '100000000000.12345678' 21chars + < b108 MAX_SUPPLY
+        tx += (amount_list,) # = Decimal('100000000000.1234567890') #TODO from decimal import Decimal; type(d) is Decimal #len('100000000000.1234567890'.encode()) MAX_LEN 21 + .8n
+        #TODO continue len(str(amount_list[0]).split('.')[1]) , '100000000000.12345678' 21chars + < b108 MAX_SUPPLY
         #TODO sig_type,sigs for MultiWalletTX
         #tx += (sig_type,)
         #tx += (sigs,)
-        tx += (pub_keys,)
+        tx += (pub_keys_list,)
         return tx #validateTX(tx)
     #len((639).to_bytes(2, 'little').decode()) == 2
     #len(str(100).encode()) == 3
@@ -589,9 +589,9 @@ class Transaction():
 
 
 #tools
-    def signTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys=[b"*" * 32], seed=b"*" * 32):
+    def signTX(self, ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list=[b"*" * 32], seed=b"*" * 32):
         try:
-            tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys)
+            tx = self.setTX(ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list)
             if tx is not None and self.validateTX(tx):
                 sk, vk = tools.getKeysFromSeed(seed)
                 signed_msg = tools.signMsg(packb(tx[:-2]), sk)
@@ -601,9 +601,9 @@ class Transaction():
             return None
 
     #
-    # def signTX(self, tx_msg, pub_keys=b"*" * 32, seed=b"*" * 32):
+    # def signTX(self, tx_msg, pub_keys_list=b"*" * 32, seed=b"*" * 32):
     #     try:
-    #         tx = self.setTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys)
+    #         tx = self.setTX(ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list)
     #         if tx is not None and self.validateTX(tx):
     #             sk, vk = tools.getKeysFromSeed(seed)
     #             signed_msg = tools.signMsg(packb(tx[0]), sk)
@@ -621,8 +621,8 @@ class Transaction():
         if bin_signed_msg is not None:
             return tools.sendMsgZmqReq(bin_signed_msg, host, port)
 
-    def sendTX(self, ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, seed=None, host=None, port=None,sendTx=True):
-        bin_signed_msg = self.signTX(ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, seed=seed)
+    def sendTX(self, ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, seed=None, host=None, port=None,sendTx=True):
+        bin_signed_msg = self.signTX(ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
             if sendTx and bin_signed_msg is not None:
                 tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
@@ -745,11 +745,11 @@ class Transaction():
         try:
             asset_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('asset_type')
             asset_type = stx[asset_field_index]
-            amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
-            list_amounts = (stx[amounts_field_index][1:-1].split(","))
-            decimal_list_amounts = [Decimal(x) for x in list_amounts]
-            total_outputs_amount = (format(sum(decimal_list_amounts), '.8f'))
-            #assert sum(decimal_list_amounts) == Decimal(format(sum(decimal_list_amounts), '.8f'))
+            amount_list_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amount_list')
+            list_amount_list = (stx[amount_list_field_index][1:-1].split(","))
+            decimal_list_amount_list = [Decimal(x) for x in list_amount_list]
+            total_outputs_amount = (format(sum(decimal_list_amount_list), '.8f'))
+            #assert sum(decimal_list_amount_list) == Decimal(format(sum(decimal_list_amount_list), '.8f'))
 
             return asset_type, total_outputs_amount
         except Exception as ex:
@@ -811,8 +811,8 @@ class Block():
     def __init__(self):
         #self.logger = Logger('Block')
         self.version = "1"
-        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'input_msgs': list, 'miner_pub_key': bytes}
-        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_msgs', 3: 'miner_pub_key'}
+        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'block_num': bytes, 'msg_list': list, 'miner_pub_key': bytes}
+        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'block_num', 3: 'msg_list', 4: 'miner_pub_key'}
 
     def sendBlock(self): #by MasterMiner
         pass
@@ -902,23 +902,36 @@ class ServiceDb():
                            CREATE TABLE  if not exists  v1_pending_tx (
                            'ver_num'	TEXT NOT NULL,
                            'msg_type'	TEXT NOT NULL,
-                           'input_txs'	TEXT NOT NULL,
+                           'tx_list'	TEXT NOT NULL,
                            'to_addrs'	TEXT NOT NULL,
                            'asset_type'	TEXT NOT NULL,
-                           'amounts'	TEXT NOT NULL,                                         
-                           'pub_keys'	BLOB NOT NULL,
+                           'amount_list'	TEXT NOT NULL,                                         
+                           'pub_keys_list'	BLOB NOT NULL,
                            'msg_hash'   TEXT NOT NULL,
                            'from_addr'	TEXT NOT NULL,
                            'node_verified'	INTEGER DEFAULT 0,
                            'node_date'	timestamp default current_timestamp,
-                            PRIMARY KEY(msg_hash)                           
-                            
+                            PRIMARY KEY(msg_hash)
+                       );
+                       '''
 
+        ddl_v1_pending_blk = '''
+                           CREATE TABLE  if not exists  v1_pending_blk (
+                           'ver_num'	TEXT NOT NULL,
+                           'msg_type'	TEXT NOT NULL,
+                           'block_num'	TEXT NOT NULL,
+                           'msg_list'	TEXT NOT NULL,
+                           'master_pub_key'	BLOB NOT NULL,
+                           'msg_hash'   TEXT NOT NULL,
+                           'from_addr'	TEXT NOT NULL,
+                           'node_verified'	INTEGER DEFAULT 0,
+                           'node_date'	timestamp default current_timestamp,
+                            PRIMARY KEY(msg_hash)
                        );
                        '''
 
 
-        ddl_list = [ddl_v1_pending_tx]
+        ddl_list = [ddl_v1_pending_tx, ddl_v1_pending_blk]
         con = self.SERVICE_DB
         try:
             with con:
@@ -983,6 +996,37 @@ class ServiceDb():
             self.logger.logp(err_msg, logging.ERROR)
             #tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
             return False
+
+    #TODO continue with rep_msg
+    def insertValidMsg(self, msg_type, socket): #TODO insert/consume asyncio Q
+        if isinstance(msg_type[1], bytes):
+            msgType = unpackb(msg_type[1])
+
+        # if msg_type[1] == tools.MsgType.BLOCK_MSG:
+        #     print('OK: Msg is Valid')
+        #     rep_socket.send(b'OK: Msg is Valid')
+
+
+
+        msg_hash = tools.Crypto.to_HMAC(rep_msg)
+        msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
+        msg_in_sdb = tools.getServiceDbTx(msg_hash)
+        ####
+        if msg_in_sdb is None and msg_in_db is None:  # TODO reject if ipaddr > 1 or from_addr within the same block
+            #tools.Q.put_nowait({'insert': rep_msg, 'priority': 0}) #TODO
+            #return socket.send(b'OK: Msg is Valid')
+        # else retun socket.send(b'ERROR: Msg Exist')
+            umsg = unpackb(rep_msg)
+            from_addr = tools.Crypto.to_HMAC(umsg[1])
+            values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
+            values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
+
+            # ServiceDb().getServiceDB().
+            insert = tools.SERVICE_DB.insertServiceDB(
+                "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, "
+                "asset_type, amount_list, pub_keys_list, msg_hash, from_addr, "
+                "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
+                values)
 
 
 class Db():
@@ -1191,20 +1235,20 @@ class Node():
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 msg_in_sdb = tools.getServiceDbTx(msg_hash)
-                if not msg_in_sdb and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
+                if msg_in_sdb is None and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
                     from_addr = tools.Crypto.to_HMAC(umsg[1])
                     values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
                     values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
                     #ServiceDb().getServiceDB().
                     insert = tools.SERVICE_DB.insertServiceDB(
-                        "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, "
-                        "asset_type, amounts, pub_keys, msg_hash, from_addr, "
+                        "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, "
+                        "asset_type, amount_list, pub_keys_list, msg_hash, from_addr, "
                         "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
                         values)
 
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
-                    #     "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                    #     "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                     #     values)
                     # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
 
@@ -1218,8 +1262,8 @@ class Node():
                     # restored_msg
 #TODO to continue restored_msg[0] == validated_msg, packb(restored_msg) == rep_msg
 
-                    #TODO Q
-                    self.Q.put_nowait(rep_msg) if insert else None
+                    #TODO Q + 1000 threads max or asyncio
+                    self.Q.put_nowait({'insert': rep_msg}) if insert else None #TODO func
                     #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
                     msg_hash = tools.Crypto.to_HMAC(rep_msg) #tools.Crypto.to_HMAC(unpackb(rep_msg)[0]) #tools.Crypto.to_HMAC(packb(umsg[0])) #tools.Crypto.to_HMAC(rep_msg)#tools.Crypto.to_HMAC(packb(umsg))
                     print('msg hash: ', msg_hash)
@@ -1336,7 +1380,7 @@ class Wallet():
         try:
             wallet = self.getDbWallet(pub_addr)
             assets = [{x: wallet[self.ASSSETS][x]} for x in wallet[self.ASSSETS].keys()]
-            tx_amount = [a for a in tx['amounts']]
+            tx_amount = [a for a in tx['amount_list']]
             if tx['asset_type'] not in tx[self.ASSSETS].keys():
                 pass #TODO to continue
                 #'{0:.8g}'.format(sum(Decimal(x) for x in d.values()))  '3.9125000'
@@ -1560,15 +1604,15 @@ if __name__ == "__main__":
 
     ###########
     multi_recv = []
-    multi_amounts = []
+    multi_amount_list = []
     for i in range(1, 5):
         receiver_seed = 'Alice%s' % i
         priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
         receiver_pub_addr = tools.getPubAddr(pub_k)
         multi_recv.append(receiver_pub_addr)
-        multi_amounts.append(b'1')
+        multi_amount_list.append(b'1')
     unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
-        unspent_input_genesis_tx], multi_recv, '1', multi_amounts,
+        unspent_input_genesis_tx], multi_recv, '1', multi_amount_list,
     signed_multi_tx = tools.signMsg(packb(unsigned_tx_multi), SK)
     signed_multi_tx_vk = (signed_multi_tx.message, VK._key)
     # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
@@ -1586,7 +1630,7 @@ if __name__ == "__main__":
     bsk, bvk = tools.getKeysFromSeed('Miner1')
     tx_arr_bin = [bin_signed_msg, signed_multi_tx_vk]
     tx_hash_arr = [signed_multi_tx_vk_bytes_hash]
-    block_msg = '1', tools.MsgType.BLOCK_MSG, tx_hash_arr
+    block_msg = '1', tools.MsgType.BLOCK_MSG, '1', tx_hash_arr
     block_signed_msg = tools.signMsg(packb(block_msg), bsk)
     block_signed_msg_vk = (block_signed_msg.message, bvk._key) #TODO vk is last 32bit
     vres, dmsg = tools.verifyMsgSig(block_signed_msg, bvk) #bvk.verify(block_signed_msg)
@@ -1660,15 +1704,15 @@ if __name__ == "__main__":
     #assert type(stx) == type(stx2)
     assert stx == stx2
 
-    #assert btx == stx[:-6] ##TODO repack of Amounts field ->repack parts with BigEndian
+    #assert btx == stx[:-6] ##TODO repack of amount_list field ->repack parts with BigEndian
     list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
                          if tools.Transaction.TX_MSG_FIELDS[k] is list]
     list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
                           v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
-    amounts_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amounts')
-    list_amounts = (stx[amounts_field_index][1:-1].split(","))
-    decimal_list_amounts = [Decimal(x) for x in list_amounts]
-    total_outputs_amount = format(sum(decimal_list_amounts), '.8f')
+    amount_list_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amount_list')
+    list_amount_list = (stx[amount_list_field_index][1:-1].split(","))
+    decimal_list_amount_list = [Decimal(x) for x in list_amount_list]
+    total_outputs_amount = format(sum(decimal_list_amount_list), '.8f')
     list_stx = list(stx)
     for i in list_field_indexes:
         list_stx[i] = list_stx[i][1:-1].split(",")
