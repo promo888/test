@@ -532,8 +532,8 @@ class Transaction():
             print('ErrorLine: ', ex.__traceback__.tb_lineno)
             return False
 
-
-    def validateMsg(self, bin_msg): #used for tmp persistance handled by tasks
+    #TODO to coninue instead verify check if wallet exist + Q tasks
+    def validateMsg(self, bin_msg, save_sdb=True): #used for tmp persistance handled by tasks
         #print('ValidateMsg...')
         try:
             if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
@@ -544,22 +544,41 @@ class Transaction():
             decoded_msg = self.decodeMsg(msg)
             if decoded_msg is None:
                 return False
+
+            #####bin sdb
+            msg_type = msg[1]
+            msg_hash = tools.to_HMAC(unpacked_msg[0])
+            pub_key = unpacked_msg[1]
+            #if isDbValue(msg_hash) or isDbValue(b'+%s' % msg_hash)
+            #if msg or input_tx already exist -> ignore DUPLICATE
+            #TODO to continue + addr from, instead of key ?
+            #todo in order to check if from_addr Wallet exist
+            ####
+
             # if not self.validateMsgSize(decoded_msg[1], bin_msg):
             #     return False
             if type(unpacked_msg[1]) is not VerifyKey:
                 vk = VerifyKey(unpacked_msg[1])
             if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
-               return self.validateTX(decoded_msg) #, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
+               valid_tx = self.validateTX(decoded_msg) #, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
+               ##valid_values = tools.getSqlValues(valid_tx)
+               ##if (valid_tx and valid_values and save_sdb):
+               ##    tools.insertServiceDB(tools.SQL_INSERT_TX, valid_values)
+               return valid_tx
             elif msg[1] == tools.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
                 print('################## NEW BLOCK TODO ##################')
-                return self.validateBlock(msg)
+                valid_block = tools.validateBlock(msg)
+                ##valid_values = tools.getSqlValues(valid_block)
+                ##if (valid_block and valid_values and save_sdb):
+                ##    tools.insertServiceDB(tools.SQL_INSERT_BLOCK, valid_values)
+                return valid_block
                 #TODO insert SDB block
                 #return msg #, unpacked_msg[-2], unpacked_msg[-1]
             else:
                 return False
         except Exception as ex:
             #print(tools.logger.exc_info())
-            print('ErrorLine: ',ex.__traceback__.tb_lineno)
+            print('validateMsg ErrorLine: ', ex.__traceback__.tb_lineno)
             return False
 
 
@@ -585,6 +604,33 @@ class Transaction():
                         return False
             return tx_msg
         except Exception as ex:
+            print('validateTX ErrorLine: ', ex.__traceback__.tb_lineno)
+            return False
+
+
+    def validateBlock(self, block_msg, pub_key=None, verifyTX=False):
+        #print('ValidateBlock...')
+        try:
+            if type(self) is Tools:
+                block_msg_fields = self.Block.BLOCK_MSG_FIELDS
+                block_msg_fields_index = self.Block.BLOCK_MSG_FIELDS_INDEX
+            else:
+                block_msg_fields = self.BLOCK_MSG_FIELDS
+                block_msg_fields_index = self.BLOCK_MSG_FIELDS_INDEX
+            block_field_names = list(block_msg_fields_index.values())[:-2]
+            for i in range(len(block_field_names)):
+                field_value = block_msg[i]
+                if type(field_value) is not block_msg_fields[block_field_names[i]]: #fields type
+                    print('ERROR: field type %s, expected %s' % (type(field_value), block_msg_fields[block_field_names[i]]))
+                    return False
+                if (type(field_value) is list):
+                    restricted_list_types = [v for v in field_value if type(v) not in (bytes, str)] #list_fields type
+                    if len(restricted_list_types) > 0:
+                        print('ERROR: restricted_list_types %s', restricted_list_types)
+                        return False
+            return block_msg
+        except Exception as ex:
+            print('validateBlock ErrorLine: ', ex.__traceback__.tb_lineno)
             return False
 
 
@@ -895,9 +941,36 @@ class ServiceDb():
         self.createNodeDbIfNotExist()
         self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None, check_same_thread=False)
         self.createTablesIfNotExist()
+        self.SQL_INSERT_MSG = """insert into v1_pending_msg 
+                                       (msg, pub_key, msg_hash, from_addr, 
+                                       node_verified, node_date) 
+                                       values (?,?,?,?,?,?) """
+        self.SQL_INSERT_TX = """insert into v1_pending_tx 
+                                (ver_num, msg_type, tx_list, to_addrs, asset_type, 
+                                amount_list, pub_keys_list, msg_hash, from_addr, 
+                                node_verified, node_date) 
+                                values (?,?,?,?,?,?,?,?,?,?,?) """
+        self.SQL_INSERT_BLOCK = """insert into v1_pending_blk 
+                                (ver_num, msg_type, block_num, msg_list, 
+                                master_pub_key, msg_hash, from_addr, 
+                                node_verified, node_date) 
+                                values (?,?,?,?,?,?,?,?,?) """
 
 
     def createTablesIfNotExist(self):
+        ddl_v1_pending_msg = '''
+                                   CREATE TABLE  if not exists  v1_pending_msg (
+                                   'msg'	BLOB NOT NULL,
+                                   'pub_key'	BLOB NOT NULL,
+                                   'msg_type'	TEXT NULL,
+                                   'msg_hash'   TEXT NOT NULL,
+                                   'from_addr'	TEXT NOT NULL,
+                                   'node_verified'	INTEGER DEFAULT 0,
+                                   'node_date'	timestamp default current_timestamp,
+                                    PRIMARY KEY(msg_hash)
+                               );
+                               '''
+
         ddl_v1_pending_tx = '''
                            CREATE TABLE  if not exists  v1_pending_tx (
                            'ver_num'	TEXT NOT NULL,
@@ -931,7 +1004,7 @@ class ServiceDb():
                        '''
 
 
-        ddl_list = [ddl_v1_pending_tx, ddl_v1_pending_blk]
+        ddl_list = [ddl_v1_pending_msg, ddl_v1_pending_tx, ddl_v1_pending_blk]
         con = self.SERVICE_DB
         try:
             with con:
@@ -996,6 +1069,13 @@ class ServiceDb():
             self.logger.logp(err_msg, logging.ERROR)
             #tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
             return False
+
+    def getSqlValues(self, decoded_msg, pub_key):
+        umsg = unpackb(decoded_msg)
+        from_addr = tools.Crypto.to_HMAC(umsg[1])
+        values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in umsg]
+        values += [sqlite3.Binary(pub_key), msg_hash, from_addr, 0, tools.utc()]
+        return values
 
     #TODO continue with rep_msg
     def insertValidMsg(self, msg_type, socket): #TODO insert/consume asyncio Q
@@ -1219,7 +1299,10 @@ class Node():
 
                 error = ""
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
+
+                #TODO to continue
                 validated_msg = tools.validateMsg(rep_msg)
+
                 if not validated_msg or validated_msg is None:
                     print('Error: Msg Validation failed')
                     rep_socket.send(b'Error: Msg Validation failed')
@@ -1229,8 +1312,8 @@ class Node():
                # print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
                 #TODO to continue
                 if validated_msg[1] == tools.MsgType.BLOCK_MSG:
-                    print('OK: Msg is Valid')
-                    rep_socket.send(b'OK: Msg is Valid')
+                    print('OK: Block is Valid')
+                    rep_socket.send(b'OK: Block is Valid')
 
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
@@ -1247,7 +1330,7 @@ class Node():
                         "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
                         values)
 
-                    # tools.SERVICE_DB.insertServiceDBpendingTX(
+                    #tools.SERVICE_DB.insertServiceDBpendingTX(
                     #     "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                     #     values)
                     # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
