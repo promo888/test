@@ -1867,3 +1867,17 @@ if __name__ == "__main__":
 #     print(tools.isDBvalue(tools.b(tx_hash2)))
 #     print(tools.isDBvalue(tools.b('*'+tx_hash2)))
 #     print(unpackb(unpackb(tools.getDbKey(tx_hash2, tools.DB.DB_PATH))[0]))
+
+
+##############################################################################
+#TOdo
+# db2wlt, db2tx, db2blk,
+# pQWorker(type) -> (['r2db', 'w2db',  'ex'
+# # [Verify', 'txValidate,
+# msg -val(wallet)-savemSdb
+# readSdb - verify - publish2master(new) - master-republish-new
+# masterPublishBlock - nodeVerify(true|false) - nodeVote(true | false)
+
+
+
+##############################################################################
