@@ -1,4 +1,6 @@
-import os, sys, subprocess, psutil, pkgutil
+#sudo apt-get install build-essential libssl-dev libffi-dev
+
+import os, sys, subprocess #, psutil, pkgutil
 import msgpack as mp
 import sqlite3, plyvel #leveldb
 import datetime, time, configparser
@@ -8,10 +10,12 @@ from msgpack import packb, unpackb
 from copy import deepcopy
 
 import configparser
-from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
-from nacl.public import Box, PrivateKey, PublicKey
-from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, \
-    crypto_sign_seed_keypair as keys_from_seed
+# from nacl.bindings import crypto_box_PUBLICKEYBYTES, crypto_box_SECRETKEYBYTES
+# from nacl.public import Box, PrivateKey, PublicKey
+# from nacl.bindings.crypto_sign import crypto_sign_open as verify, crypto_sign as sign, \
+#     crypto_sign_seed_keypair as keys_from_seed
+
+import nacl.bindings
 from nacl.signing import SigningKey, VerifyKey, SignedMessage
 from Crypto.Hash import SHA256, HMAC, RIPEMD
 from decimal import Decimal
