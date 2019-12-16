@@ -1322,7 +1322,7 @@ class Node():
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
                     #     "insert into v1_pending_tx (ver_num, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                     #     values)
-                    # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
+                    # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1_0.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
 
 #smsg = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx")[0]
                     # restored_msg = ()
