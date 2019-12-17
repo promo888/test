@@ -2604,7 +2604,7 @@ if __name__ == "__main__":
 #     print(tools.isDBvalue(tools.b('*'+tx_hash2)))
 #     print(unpackb(unpackb(tools.getDbKey(tx_hash2, tools.DB.DB_PATH))[0]))
 
-
+#x240
 ##############################################################################
 #TOdo
 # bmsg -> validate(binMsgHash) -> sdb -> taskVerify -> blockWriteDb -> delSdb
