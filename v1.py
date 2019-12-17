@@ -832,8 +832,10 @@ class Block():
     def __init__(self):
         #self.logger = Logger('Block')
         self.version = "1"
-        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'input_msgs': list, 'miner_pub_key': bytes}
-        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'input_msgs', 3: 'miner_pub_key'}
+        self.BLOCK_MSG_FIELD_TYPE = {'ver_num': bytes, 'msg_type': bytes, 'input_msgs': list, 'miner_pub_key': bytes}
+        self.BLOCK_MSG_INDEX_FIELD = {0: 'ver_num', 1: 'msg_type', 2: 'input_msgs', 3: 'miner_pub_key'}
+        self.BLOCK_MSG_FIELD_INDEX = {'ver_num': 0, 'msg_type': 1, 'input_msgs': 2, 'miner_pub_key': 3}
+
 
     def insertGenesis(self, genesis_block):
         gSK, gVK = tools.getKeysFromSeed('Miner0')
@@ -867,8 +869,6 @@ class Block():
         g_block_msg = '1', tools.MsgType.BLOCK_MSG, g_tx_hash_arr
         g_signed_block_msg = tools.signMsg(packb(g_block_msg), gVK._key)
         g_signed_block_msg_and_key_bytes = packb((g_signed_msg, gVK._key))
-
-
 
         genesis_block = []
 

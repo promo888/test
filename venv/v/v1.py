@@ -1,7 +1,7 @@
 import os, sys, subprocess, psutil, pkgutil
 import msgpack as mp
 import sqlite3, plyvel #leveldb
-import datetime, time, configparser
+import datetime, time, arrow, configparser
 import logging
 from logging.handlers import RotatingFileHandler
 from msgpack import packb, unpackb
@@ -21,6 +21,7 @@ from time import sleep
 import threading
 from multiprocessing import Process #ToDo killPorts+watchdog
 from queue import Queue
+import enum, math
 
 class Test():
 
@@ -34,13 +35,18 @@ class Test():
         print('res: %s cmd: %s' % (result, cmd))
 
 
-    def getCaller(self):
+    def printCaller(self):
         import inspect
         curframe = inspect.currentframe()
         calframe = inspect.getouterframes(curframe, 2)
         print('Caller name: ', calframe[1][3])
         print('Caller name: ', inspect.stack()[1][3])
         #print('Caller name: ', sys._getframe().f_back.f_code.co_name)
+
+
+    def getCaller(self):
+        return sys._getframe().f_back.f_code.co_name
+
 
 
     def persistKeysInServiceDB(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
@@ -68,47 +74,83 @@ class Test():
             # logger.logp(err_msg, logging.ERROR)
             return None
 
+#TODO signed_msg_hash=signed_msg onMsgRetrieve
+    # def persistPendingMsg(self, signed_msg_hash, signed_msg, pub_key, msg_priority=None):
+    #     ddl_v1_pending_msg = ''''CREATE TABLE  if not exists  v1_pending_msg
+    #                             (
+    #                              'signed_msg_hash' TEXT NOT NULL,
+    #                              'signed_msg' BLOB UNIQUE NOT NULL,
+    #                              'pub_key'	BLOB NOT NULL,
+    #                              'msg_priority' INTEGER DEFAULT 0,
+    #                              'node_verified'	INTEGER DEFAULT 0,
+    #                              'node_date'	timestamp default current_timestamp,
+    #                              PRIMARY KEY(signed_msg_hash)
+    #                             );
+    #                          '''
+    #     msg_priority = 0 if msg_priority is None else msg_priority
+    #     sql = "INSERT INTO v1_pending_msg (signed_msg_hash, signed_msg, pub_key, msg_priority) values (?,?,?,?)"
+    #     print("INSERT INTO v1_pending_msg from %s with % priority" % (tools.to_HMAC(pub_key), msg_priority))
+    #     con = self.getServiceDb()
+    #     try:
+    #         with con:
+    #             cur = con.cursor()
+    #             con.execute(ddl_v1_pending_tx)
+    #             cur.execute(sql, [signed_msg_hash, sqlite3.Binary(signed_msg), sqlite3.Binary(pub_key), msg_priority])
+    #             con.commit()
+    #     except Exception as ex:
+    #                  # logger = Logger('Test')
+    #                  # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+    #                  # logger.logp(err_msg, logging.ERROR)
+    #         return None
 
-        def persistPendingTX(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
-            ddl_v1_pending_tx = '''
-                   CREATE TABLE IF NOT EXISTS 'v1_pending_tx' (
-                   'ver_num'	TEXT NOT NULL,
-                   'msg_type'	TEXT NOT NULL,
-                   'tx_list'	TEXT NOT NULL,
-                   'output_txs'	TEXT NOT NULL,
-                   'to_addrs'	TEXT NOT NULL,
-                   'asset_type'	TEXT NOT NULL,
-                   'amount_list'	TEXT NOT NULL,                                               
-                   'pub_keys_list'	BLOB NOT NULL,
-                   'msg_hash'   TEXT NOT NULL, 
-                   'from_addr'	TEXT NOT NULL,
-                   'node_verified'	INTEGER DEFAULT 0,
-                   'node_date'  TEXT DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY(msg_hash) 
-                   
-               );
-               '''
-#TODO sigtype is required on create MultiSig Wallet + MultiSigTx
 
-            sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
-            con = self.getServiceDb() #ServiceDb().getServiceDB()
-            try:
-                with con:
-                    cur = con.cursor()
-                    con.execute(ddl_v1_pending_tx)
-                    cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed),
-                                      pub_addr_str, nick])
-                    con.commit()
-            except Exception as ex:
-                # logger = Logger('Test')
-                # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
-                # logger.logp(err_msg, logging.ERROR)
-                return None
+#     def persistPendingTX(self, bin_priv, bin_pub, bin_seed, pub_addr_str, nick=''):
+#             ddl_v1_pending_tx = '''
+#                    CREATE TABLE IF NOT EXISTS 'v1_pending_tx' (
+#                    'version'	TEXT NOT NULL,
+#                    'msg_type'	TEXT NOT NULL,
+#                    'input_txs'	TEXT NOT NULL,
+#                    'output_txs'	TEXT NOT NULL,
+#                    'to_addrs'	TEXT NOT NULL,
+#                    'asset_type'	TEXT NOT NULL,
+#                    'amounts'	TEXT NOT NULL,
+#                    'pub_keys'	BLOB NOT NULL,
+#                    'msg_hash'   TEXT NOT NULL,
+#                    'from_addr'	TEXT NOT NULL,
+#                    'node_verified'	INTEGER DEFAULT 0,
+#                    'node_date'  TEXT DEFAULT CURRENT_TIMESTAMP,
+#                     PRIMARY KEY(msg_hash)
+#
+#                );
+#                '''
+# #TODO sigtype is required on create MultiSig Wallet + MultiSigTx
+#
+#             sql = "INSERT INTO v1_test_accounts (priv_key,pub_key,seed,pub_addr,nick) values (?,?,?,?,?)"
+#             con = self.getServiceDb() #ServiceDb().getServiceDB()
+#             try:
+#                 with con:
+#                     cur = con.cursor()
+#                     con.execute(ddl_v1_pending_tx)
+#                     cur.execute(sql, [sqlite3.Binary(bin_priv), sqlite3.Binary(bin_pub), sqlite3.Binary(bin_seed),
+#                                       pub_addr_str, nick])
+#                     con.commit()
+#             except Exception as ex:
+#                 # logger = Logger('Test')
+#                 # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+#                 # logger.logp(err_msg, logging.ERROR)
+#                 return None
 
 
 
 class Helper:
-    import msgpack as mp
+    ##import msgpack as mp
+
+    def utc(self):
+        return datetime.datetime.utcnow()
+
+    def p(self, str): #TODO logger
+        if "DEBUG".upper() in os.environ:
+            print(str)
 
     def b(self, str):
         try:
@@ -131,6 +173,7 @@ class Helper:
             return None
 
 
+
 # class Events:
 #     MSG_ACCEPTED
 #     MSG_VERIFIED
@@ -144,56 +187,88 @@ class Helper:
 #     CONTRACT_RELEASE
 #     ORACLE_INVOLVED
 
-#tools.MsgType.__class__.__dict__.values()
-class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute__('UNSPENT_TX')
-
-    #Transactions/Messages
-    UNSPENT_TX = '+'    #b'+' #b'\x00'
-    SPENT_TX = '-'      #b'-'   #b'\x01'
-    PARENT_TX_MSG = '*' #b'*' #b'\x02'
+class MsgTypes(enum.Enum):
+    # Transactions/Messages/Contracts
+    VERSION = b'1'
+    UNSPENT_TX = '+'  # b'+' #b'\x00'
+    SPENT_TX = '-'  # b'-'   #b'\x01'
+    PARENT_TX_MSG = '*'  # b'*' #b'\x02'
     PARENT_TX_MSG_MAX_SIZE = 1024
     SPEND_MULTI_SIG_TX = b'\x03'
     MINER_FEE_TX = b'\x04'
     MINER_ISSUE_TX = b'\x05'
-    BLOCK_MSG = b'B' #b'\xb0'
+    BLOCK_MSG = 'B'  # b'\xb0'
     BLOCK_MSG_MAX_SIZE = 4096
-    VOTE_MSG = b'V' #b'\xb1'
-    CONTRACT_TX = b'C' #b'\xc0'
-    CONTRACT_CONFIRM_TX = b'T' #b'\xc1'
-    CONTRACT_MSG = b'D' #b'\xc2'
+    VOTE_MSG = 'V'  # b'\xb1'
+    CONTRACT_TX = 'C'  # b'\xc0'
+    CONTRACT_CONFIRM_TX = 'T'  # b'\xc1'
+    CONTRACT_MSG = 'D'  # b'\xc2'
     REGISTER_TX = b'\xe1'
-    EXCHANGE_TX = b'E' #b'\x88'
-    ICO_TX = b'I' #b'\xa6'
-    AGENT_TX = b'A' #b'\xa7'
+    EXCHANGE_TX = b'E'  # b'\x88'
+    ICO_TX = 'I'  # b'\xa6'
+    AGENT_TX = 'A'  # b'\xa7'
     INVOKE_TX = b'\xd1'
-    RELAY_TX = b'R' #b'\xd2'
-    MSG_MSG = b'M'  #b'\xd3'
+    RELAY_TX = 'R'  # b'\xd2'
+    MSG_MSG = 'M'  # b'\xd3'
+
+#tools.MsgType.__class__.__dict__.values()
+class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute__('UNSPENT_TX')
+
+    #Transactions/Messages/Contracts/Validattions
+    Type = MsgTypes
+    # UNSPENT_TX = MsgTypes.UNSPENT_TX
+    # SPENT_TX = MsgTypes.UNSPENT_TX
+    # PARENT_TX_MSG = MsgTypes.UNSPENT_TX
+    # PARENT_TX_MSG_MAX_SIZE = MsgTypes.UNSPENT_TX
+    # SPEND_MULTI_SIG_TX = MsgTypes.UNSPENT_TX
+    # MINER_FEE_TX = MsgTypes.UNSPENT_TX
+    # MINER_ISSUE_TX = MsgTypes.UNSPENT_TX
+    # BLOCK_MSG = MsgTypes.UNSPENT_TX
+    # BLOCK_MSG_MAX_SIZE = 4096
+    # VOTE_MSG = 'V' #b'\xb1'
+    # CONTRACT_TX = 'C' #b'\xc0'
+    # CONTRACT_CONFIRM_TX = 'T' #b'\xc1'
+    # CONTRACT_MSG = 'D' #b'\xc2'
+    # REGISTER_TX = b'\xe1'
+    # EXCHANGE_TX = b'E' #b'\x88'
+    # ICO_TX = 'I' #b'\xa6'
+    # AGENT_TX = 'A' #b'\xa7'
+    # INVOKE_TX = b'\xd1'
+    # RELAY_TX = 'R' #b'\xd2'
+    # MSG_MSG = 'M'  #b'\xd3'
 
 
-    def isValidType(self, typeValue):
-        if typeValue is None or len(typeValue) != 1:
-            return None
-        return next((k for k, v in tools.MsgType.__class__.__dict__.items() if v == typeValue), None)
+    #def isValidType(self, typeValue):
+        # if typeValue is None or len(typeValue) != 1:
+        #     return None
+        # return next((k for k, v in tools.MsgType.__class__.__dict__.items() if v == typeValue), None)
+
+    def isValidType(self, msg):
+        type_index_byte = 1 # Version 1
+        try:
+            return msg[type_index_byte].decode('utf-8') in [v.value for v in self.Type] #str type expected
+        except:
+            return False
 
 
-    def getMsgTypes(self):
-        return ['UNSPENT_TX', 'SPENT_TX', 'PARENT_TX_MSG', 'SPEND_MULTI_SIG_TX',
-                'MINER_FEE_TX', 'MINER_ISSUE_TX', 'BLOCK_MSG', 'VOTE_MSG',
-                'CONTRACT_TX', 'CONTRACT_CONFIRM_TX', 'CONTRACT_MSG',
-                'REGISTER_TX', 'EXCHANGE_TX', 'ICO_TX', 'AGENT_TX',
-                'INVOKE_TX', 'RELAY_TX', 'MSG_MSG'
-        ]
-
-
-    def getMsgType(self, msg_type):
-        return self.isValidType(msg_type)
-
-
-    def changeMsgType(self, msg, toType):
-        if toType in self.getMsgTypes():
-            msg[1] = tools.MsgType.__getattribute__(toType)
-            return msg
-        return None
+    # def getMsgTypes(self):
+    #     return ['UNSPENT_TX', 'SPENT_TX', 'PARENT_TX_MSG', 'SPEND_MULTI_SIG_TX',
+    #             'MINER_FEE_TX', 'MINER_ISSUE_TX', 'BLOCK_MSG', 'VOTE_MSG',
+    #             'CONTRACT_TX', 'CONTRACT_CONFIRM_TX', 'CONTRACT_MSG',
+    #             'REGISTER_TX', 'EXCHANGE_TX', 'ICO_TX', 'AGENT_TX',
+    #             'INVOKE_TX', 'RELAY_TX', 'MSG_MSG'
+    #     ]
+    #
+    #
+    # def getMsgType(self, msg_type):
+    #     return self.isValidType(msg_type)
+    #
+    #
+    # def changeMsgType(self, msg, toType):
+    #     if toType in self.getMsgTypes():
+    #         msg[1] = tools.MsgType.__getattribute__(toType)
+    #         return msg
+    #     return None
 
 
     #Wallets
@@ -236,14 +311,16 @@ class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute_
 
 # class MsgType:
 #     SPEND_TX_MSG_FIELDS = (
-#     'ver_num', 'msg_type', 'pub_keys_list', 'tx_list', 'output_txs', 'from_addr', 'to_addrs',
-#     'asset_type', 'amount_list', 'ts', )
+#     'version', 'msg_type', 'pub_keys', 'input_txs', 'output_txs', 'from_addr', 'to_addrs',
+#     'asset_type', 'amounts', 'ts', )
 
 
 
 class Structure(object):
     def __init__(self):
         self.version = "1"
+        self.PTX_TX_LIMIT = 100 #000 #?
+        self.obFromTxList = {"asset": None, "inputs": None, "amount": None, "to_addr": None}
 
 
 class Config():
@@ -251,8 +328,10 @@ class Config():
         self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
         self.NODE_SERVICE_DB = '%s/../service_db/DATA/service.db' % self.ROOT_DIR
         self.NODE_DB = '%s/../db/DATA' % self.ROOT_DIR
+        self.NODE_DB_TMP = '%s/../db/DATA/tmp' % self.ROOT_DIR
         self.LOGS = '%s/../logs' % self.ROOT_DIR
-
+        self.WALLETS = '%s/../WALLETS' % self.ROOT_DIR
+        self.MAIN_COIN = '1' #todo 2change 4meaningful name FxCash, CryptoCash, Pcoin,
 
 class Logger():
 
@@ -392,6 +471,8 @@ class Crypto():
     def signMsg(self, msg, SignKey):
         ''' Return Curve 25519 Signature - msg hexdigest'''
         try:
+            if not isinstance(SignKey, SigningKey):
+                SignKey = SigningKey(SignKey)
             signed_msg = SignKey.sign(msg)
             return signed_msg
         except Exception as ex:
@@ -400,15 +481,15 @@ class Crypto():
             tools.logger.logp(err_msg, logging.ERROR)
             return None
 
-    def verifyMsgSig(self, signed_msg, VerifyingKey):
+    def verifyMsgSig(self, signed_msg, verifying_key):
         '''Return True if msg verified, otherwise false'''
         try:
             SM = signed_msg
-            VK = VerifyingKey
+            VK = verifying_key
             if type(signed_msg) is not SignedMessage:
                 SM = SignedMessage(signed_msg)
-            if type(VerifyingKey) is not VerifyKey:
-                VK = VerifyKey(VerifyingKey) #TODO assert VerifyKey(signed_msg[-32:]) == VK
+            if type(verifying_key) is not VerifyKey:
+                VK = VerifyKey(verifying_key) #TODO assert VerifyKey(signed_msg[-32:]) == VK
             #print('SM', SM)
             #print('VK', VK)
             #print('Unpacked MsgType: ', type(unpackb(signed_msg)))
@@ -438,6 +519,8 @@ class Crypto():
     def to_HMAC(self, bytes_msg):
         '''Return HMAC hash from bytes'''
         try:
+            if not isinstance(bytes_msg, bytes):
+                bytes_msg = packb(bytes_msg)
             return HMAC.new(bytes_msg).hexdigest()
         except:
             return None
@@ -449,25 +532,38 @@ class Transaction():
         #self.logger = Logger('Transaction')
         self.version = "1"
 
-        self.TX_MSG_FIELDS = {'ver_num': str, 'msg_type': str, 'tx_list': list, #'output_txs': list, # 'from_addr': str,->Multisig
-                              'to_addrs': list, 'asset_type': str, 'amount_list': list, 'pub_keys_list': bytes}
-        self.TX_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'tx_list', 3: 'to_addrs',
-                                    4: 'asset_type', 5: 'amount_list', 6: 'pub_keys_list'}
+        self.TX_FEE = 0.001 #todo fromConfig
+        self.TX_MSG_FIELD_TYPE = {'version': str, 'msg_type': str, 'input_txs': list,  #'output_txs': list, # 'from_addr': str,->Multisig
+                              'to_addrs': list, 'asset_type': str, 'amounts': list, 'output_txs': list,
+                              'tx_utc_time': bytes, 'pub_keys': bytes}
+        self.TX_MSG_INDEX_FIELD = {0: 'version', 1: 'msg_type', 2: 'input_txs', 3: 'to_addrs',
+                                   4: 'asset_type', 5: 'amounts', 6: 'output_txs',
+                                   7: 'tx_utc_time', 8: 'pub_keys'}
+        self.TX_MSG_FIELD_INDEX = {'version': 0, 'msg_type': 1, 'input_txs': 2, 'to_addrs': 3,
+                                    'asset_type': 4, 'amounts': 5, 'output_txs': 6,
+                                   'tx_utc_time': 7, 'pub_keys': 8}
 
-    def setTX(self, ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list): #output_txs,
+
+    def getTxFieldValue(self, tx_msg, field_name):
+        if not field_name in self.TX_MSG_FIELD_INDEX:
+            return None
+        return tx_msg[self.TX_MSG_FIELD_INDEX.get(field_name)]
+
+
+    def setTX(self, version, msg_type, input_txs, to_addrs, asset_type, amounts, tx_fee, pub_keys): #output_txs,
         tx = ()
-        tx += (ver_num,)
+        tx += (version,)
         tx += (msg_type,)
-        tx += (tx_list,)
+        tx += (input_txs,)
 #        tx += (output_txs,)
         tx += (to_addrs,)
         tx += (asset_type,)
-        tx += (amount_list,) # = Decimal('100000000000.1234567890') #TODO from decimal import Decimal; type(d) is Decimal #len('100000000000.1234567890'.encode()) MAX_LEN 21 + .8n
-        #TODO continue len(str(amount_list[0]).split('.')[1]) , '100000000000.12345678' 21chars + < b108 MAX_SUPPLY
+        tx += (amounts,) # = Decimal('100000000000.1234567890') #TODO from decimal import Decimal; type(d) is Decimal #len('100000000000.1234567890'.encode()) MAX_LEN 21 + .8n
+        #TODO continue len(str(amounts[0]).split('.')[1]) , '100000000000.12345678' 21chars + < b108 MAX_SUPPLY
         #TODO sig_type,sigs for MultiWalletTX
         #tx += (sig_type,)
         #tx += (sigs,)
-        tx += (pub_keys_list,)
+        ##tx += (pub_keys,)
         return tx #validateTX(tx)
     #len((639).to_bytes(2, 'little').decode()) == 2
     #len(str(100).encode()) == 3
@@ -518,12 +614,14 @@ class Transaction():
     #len((('999999999012.12345678'.encode())))
     #Decimal((b'999999999012.12345678').decode())
 
-
+    #todo to change verfySig, lenght, childs not exist in DB
     def verifyMsg(self, decoded_msg):
         try:
             if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
-                if not tools.verifyPTX(decoded_msg):
+                if tools.isPtxExist(decoded_msg):
                     return False
+            elif decoded_msg[1] == tools.MsgType.BLOCK_MSG:
+                pass
             elif decoded_msg[1] == tools.MsgType.CONTRACT_TX:
                 pass #todo continue
             else:
@@ -532,65 +630,80 @@ class Transaction():
             print('ErrorLine: ', ex.__traceback__.tb_lineno)
             return False
 
-    #TODO to coninue instead verify check if wallet exist + Q tasks
-    def validateMsg(self, bin_msg, save_sdb=True): #used for tmp persistance handled by tasks
-        #print('ValidateMsg...')
+
+
+    def isMsgValid(self, bin_msg):
+        if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
+            return False
         try:
-            if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
-                return False
-            #TODO if msg is list -> type(unpackb(bin_msg)) is list -> elem unpackb is Tuple
-            unpacked_msg = unpackb(bin_msg)
-            msg = tuple(unpackb(unpacked_msg[0]))
-            decoded_msg = self.decodeMsg(msg)
-            if decoded_msg is None:
-                return False
-
-            #####bin sdb
-            msg_type = msg[1]
-            msg_hash = tools.to_HMAC(unpacked_msg[0])
-            pub_key = unpacked_msg[1]
-            #if isDbValue(msg_hash) or isDbValue(b'+%s' % msg_hash)
-            #if msg or input_tx already exist -> ignore DUPLICATE
-            #TODO to continue + addr from, instead of key ?
-            #todo in order to check if from_addr Wallet exist
-            ####
-
-            # if not self.validateMsgSize(decoded_msg[1], bin_msg):
-            #     return False
-            if type(unpacked_msg[1]) is not VerifyKey:
-                vk = VerifyKey(unpacked_msg[1])
-            if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
-               valid_tx = self.validateTX(decoded_msg) #, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
-               ##valid_values = tools.getSqlValues(valid_tx)
-               ##if (valid_tx and valid_values and save_sdb):
-               ##    tools.insertServiceDB(tools.SQL_INSERT_TX, valid_values)
-               return valid_tx
-            elif msg[1] == tools.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
-                print('################## NEW BLOCK TODO ##################')
-                valid_block = tools.validateBlock(msg)
-                ##valid_values = tools.getSqlValues(valid_block)
-                ##if (valid_block and valid_values and save_sdb):
-                ##    tools.insertServiceDB(tools.SQL_INSERT_BLOCK, valid_values)
-                return valid_block
-                #TODO insert SDB block
-                #return msg #, unpacked_msg[-2], unpacked_msg[-1]
-            else:
-                return False
-        except Exception as ex:
-            #print(tools.logger.exc_info())
-            print('validateMsg ErrorLine: ', ex.__traceback__.tb_lineno)
+            pk = unpackb(bin_msg)[1] #validate correct packaging
+            return tools.isWalletExist(bin_msg)
+        except:
+            print('ERROR: Failed to unpack Public/Verifying Key')
             return False
 
 
-    def validateTX(self, tx_msg, pub_key=None, verifyTX=False):
+    def validateMsg(self, bin_msg): #used for tmp persistance handled by tasks
+        #print('ValidateMsg...')
+        #TODO verifyWalletSenderExist
+        # isinstance(VerifyKey(unpackb(bin_msg)[1]), VerifyKey) #pub_k hash
+        #and
+        #tools.isDBvalue( VerifyKey((unpackb(bin_msg)[1]))._key ) #pub_k hash
+        #or?
+        # tools.isDBvalue(tools.to_HMAC(unpackb(bin_msg)[1])) #pub_k hash
+
+        #check that wallet exist and msg(duplicate) not exist
+        #msg__db_wallet = tools.b(tools.to_HMAC(VerifyKey(bin_msg[-32:])._key))
+        #msg_db_hash = tools.b(tools.to_HMAC( bin_msg[:-32])) #msg_hash
+
+
+        try:
+            if len(bin_msg) > tools.MsgType.MAX_MSG_SIZE_BYTES:
+                return False
+            # if tools.isDBvalue(tools.to_HMAC(bin_msg)): # double spent check -> verifiedByNode onAcceptMsg
+            #     return False
+            #TODO if msg is list -> type(unpackb(bin_msg)) is list -> elem unpackb is Tuple
+            unpacked_msg = unpackb(bin_msg) #if not isinstance(bin_msg, tuple) else bin_msg
+            if not len(unpacked_msg) == 2 or not isinstance(unpacked_msg[1], bytes) or not isinstance(unpacked_msg[1], bytes):
+                return False
+            addr_exist = tools.isDBvalue(tools.to_HMAC(unpacked_msg[1]))
+            if not addr_exist:
+                return False
+            return True
+
+            # msg = tuple(unpackb(unpacked_msg[0]))
+            # decoded_msg = tools.decodeMsg(msg)
+            # if decoded_msg is None:
+            #     return False
+            # if not self.validateMsgSize(decoded_msg[1], bin_msg):
+            #     return False
+
+            # if type(unpacked_msg[1]) is not VerifyKey:
+            #     vk = VerifyKey(unpacked_msg[1])
+            # if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
+            #    return tools.validateTX(decoded_msg) #, unpacked_msg[1], vk): #self.to_HMAC(bin_msg)
+            # elif msg[1] == tools.MsgType.BLOCK_MSG: #tools #TODO add decoderByMsgType
+            #     print('################## NEW BLOCK TODO ##################')
+            #     return tools.validateBlock(msg)
+            #     #TODO insert SDB block
+            #     #return msg #, unpacked_msg[-2], unpacked_msg[-1]
+            # else:
+            #     return False
+        except Exception as ex:
+            #print(tools.logger.exc_info())
+            print('ErrorLine: ',ex.__traceback__.tb_lineno)
+            return False
+
+
+    def validateTX(self, tx_msg, pub_key=None, verifyTX=False): #TODO
         #print('ValidateTX...')
         try:
             if type(self) is Tools:
                 tx_msg_fields = self.Transaction.TX_MSG_FIELDS
                 tx_msg_fields_index = self.Transaction.TX_MSG_FIELDS_INDEX
             else:
-                tx_msg_fields = self.TX_MSG_FIELDS
-                tx_msg_fields_index = self.TX_MSG_FIELDS_INDEX
+                tx_msg_fields = self.TX_MSG_FIELD_TYPE
+                tx_msg_fields_index = self.TX_MSG_INDEX_FIELD
             tx_field_names = list(tx_msg_fields_index.values())[:-2] #fields amount
             for i in range(len(tx_field_names)):
                 field_value = tx_msg[i]
@@ -604,40 +717,13 @@ class Transaction():
                         return False
             return tx_msg
         except Exception as ex:
-            print('validateTX ErrorLine: ', ex.__traceback__.tb_lineno)
-            return False
-
-
-    def validateBlock(self, block_msg, pub_key=None, verifyTX=False):
-        #print('ValidateBlock...')
-        try:
-            if type(self) is Tools:
-                block_msg_fields = self.Block.BLOCK_MSG_FIELDS
-                block_msg_fields_index = self.Block.BLOCK_MSG_FIELDS_INDEX
-            else:
-                block_msg_fields = self.BLOCK_MSG_FIELDS
-                block_msg_fields_index = self.BLOCK_MSG_FIELDS_INDEX
-            block_field_names = list(block_msg_fields_index.values())[:-2]
-            for i in range(len(block_field_names)):
-                field_value = block_msg[i]
-                if type(field_value) is not block_msg_fields[block_field_names[i]]: #fields type
-                    print('ERROR: field type %s, expected %s' % (type(field_value), block_msg_fields[block_field_names[i]]))
-                    return False
-                if (type(field_value) is list):
-                    restricted_list_types = [v for v in field_value if type(v) not in (bytes, str)] #list_fields type
-                    if len(restricted_list_types) > 0:
-                        print('ERROR: restricted_list_types %s', restricted_list_types)
-                        return False
-            return block_msg
-        except Exception as ex:
-            print('validateBlock ErrorLine: ', ex.__traceback__.tb_lineno)
             return False
 
 
 #tools
-    def signTX(self, ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list=[b"*" * 32], seed=b"*" * 32):
+    def signTX(self, version, msg_type, input_txs, to_addrs, asset_type, amounts, tx_fee, pub_keys=[b"*" * 32], seed=b"*" * 32):
         try:
-            tx = self.setTX(ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list)
+            tx = self.setTX(version, msg_type, input_txs, to_addrs, asset_type, amounts, tx_fee, pub_keys)
             if tx is not None and self.validateTX(tx):
                 sk, vk = tools.getKeysFromSeed(seed)
                 signed_msg = tools.signMsg(packb(tx[:-2]), sk)
@@ -647,9 +733,9 @@ class Transaction():
             return None
 
     #
-    # def signTX(self, tx_msg, pub_keys_list=b"*" * 32, seed=b"*" * 32):
+    # def signTX(self, tx_msg, pub_keys=b"*" * 32, seed=b"*" * 32):
     #     try:
-    #         tx = self.setTX(ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list)
+    #         tx = self.setTX(version, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys)
     #         if tx is not None and self.validateTX(tx):
     #             sk, vk = tools.getKeysFromSeed(seed)
     #             signed_msg = tools.signMsg(packb(tx[0]), sk)
@@ -667,8 +753,8 @@ class Transaction():
         if bin_signed_msg is not None:
             return tools.sendMsgZmqReq(bin_signed_msg, host, port)
 
-    def sendTX(self, ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, seed=None, host=None, port=None,sendTx=True):
-        bin_signed_msg = self.signTX(ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, seed=seed)
+    def sendTX(self, version, msg_type, input_txs, to_addrs, asset_type, amounts, seed=None, host=None, port=None, sendTx=True):
+        bin_signed_msg = self.signTX(version, msg_type, input_txs, to_addrs, asset_type, amounts, seed=seed)
         if bin_signed_msg is not None and host is not None and port is not None:
             if sendTx and bin_signed_msg is not None:
                 tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
@@ -709,14 +795,14 @@ class Transaction():
 
     def stx2btx(self, stx):
         try:
-            list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
-                                 if tools.Transaction.TX_MSG_FIELDS[k] is list]
-            list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
-                                  v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
+            list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELD_TYPE
+                                 if tools.Transaction.TX_MSG_FIELD_TYPE[k] is list]
+            list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_INDEX_FIELD.items() if
+                                  v in list_fields_names and v in tools.Transaction.TX_MSG_INDEX_FIELD.values()]
             list_stx = list(stx)
             for i in list_field_indexes:
                 list_stx[i] = list_stx[i][1:-1].split(",")
-            tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
+            tx_fields_len = len(tools.Transaction.TX_MSG_INDEX_FIELD.keys())
             sdb_tx = tuple(list_stx[:tx_fields_len])
             btx = (packb(sdb_tx[0]), sdb_tx[-2], sdb_tx[-1])
             btx_hash = tools.Crypto.to_HMAC(packb((packb(sdb_tx[:-2]), sdb_tx[-2], sdb_tx[-1])))
@@ -739,10 +825,9 @@ class Transaction():
             sdb_tx += (pubk,)
             btx = packb(stx), sig, pubk
             btxp = packb(btx)
-            stx_hash = tools.Crypto.to_HMAC(btxp)
+            stx_hash = tools.Crypto.to_HMAC(btxp) #TODO cryptoPubK
             return sdb_tx, stx_hash
         except Exception as ex:
-            #todo logger
             return None
 
 
@@ -789,13 +874,13 @@ class Transaction():
 
     def getTxAmount(self, stx):
         try:
-            asset_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('asset_type')
+            asset_field_index = list(tools.Transaction.TX_MSG_INDEX_FIELD.values()).index('asset_type')
             asset_type = stx[asset_field_index]
-            amount_list_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amount_list')
-            list_amount_list = (stx[amount_list_field_index][1:-1].split(","))
-            decimal_list_amount_list = [Decimal(x) for x in list_amount_list]
-            total_outputs_amount = (format(sum(decimal_list_amount_list), '.8f'))
-            #assert sum(decimal_list_amount_list) == Decimal(format(sum(decimal_list_amount_list), '.8f'))
+            amounts_field_index = list(tools.Transaction.TX_MSG_INDEX_FIELD.values()).index('amounts')
+            list_amounts = (stx[amounts_field_index][1:-1].split(","))
+            decimal_list_amounts = [Decimal(x) for x in list_amounts]
+            total_outputs_amount = (format(sum(decimal_list_amounts), '.8f'))
+            #assert sum(decimal_list_amounts) == Decimal(format(sum(decimal_list_amounts), '.8f'))
 
             return asset_type, total_outputs_amount
         except Exception as ex:
@@ -809,13 +894,9 @@ class Transaction():
 
 
     #TODO verifyBlock or sdb_msg_limit
-    def verifyPTX(self, ptx_msg):
+    def isPtxExist(self, ptx_msg):
         ptx_hash = tools.Crypto.to_HMAC(packb(ptx_msg))
-        if tools.isDBvalue(ptx_hash) is not None:
-            return False
-        else:
-            pass #return verifyTX
-
+        return tools.isDBvalue(ptx_hash, print_caller='verifyPTX')
 
 
     # @staticmethod
@@ -844,7 +925,36 @@ class Contract():
     pass
 
 class Ico():
-    pass
+    def __init__(self):
+        self.ASSET_FEE = 10  # TODO fromConfig
+        #pass
+
+
+    def areVotesValid(self, votes=[]): #TODO isVoteHolderMeetReqsFromConfig
+        return True
+
+    #TODO validate edges<supply, on blockRewardVerifyEdges
+    def createAsset(self, id, name, supply, miner_fee,
+                    asset_block_rewards, rewards_reduce_edges, creator_key, desc=''):
+        #[{'50': 50} IF BLOCK > 50% SUPPLY REDUCE REWARDS FOR 50% OF asset_block_rewards]
+        #TODO rewards_halving_percent [], rewards_halving_supply_percent []
+        #Todo onNewWallet reduce txFee=createWalletFee
+        if tools.getDbKey(creator_key) is None:
+            return False
+        if miner_fee < tools.Ico.ASSET_FEE:
+            return False
+        isAssetExist = tools.isDBvalue(id)
+        if isAssetExist is None or not isAssetExist: #todo hashid
+            return tools.insertDbKey(id, (name, supply, miner_fee, asset_block_rewards,
+                                          rewards_reduce_edges),
+                                     desc='ICO ' + desc + name)
+        else:
+            return False
+
+    def createContract(self):
+        pass
+
+
 
 class State():
     def __init__(self):
@@ -854,11 +964,146 @@ class State():
 
 
 class Block():
-    def __init__(self):
+    def __init__(self, block=None):
         #self.logger = Logger('Block')
         self.version = "1"
-        self.BLOCK_MSG_FIELDS = {'ver_num': bytes, 'msg_type': bytes, 'block_num': bytes, 'msg_list': list, 'miner_pub_key': bytes}
-        self.BLOCK_MSG_FIELDS_INDEX = {0: 'ver_num', 1: 'msg_type', 2: 'block_num', 3: 'msg_list', 4: 'miner_pub_key'}
+        self.BLOCK_MSG_FIELD_TYPE = {'version': bytes, 'msg_type': bytes, 'block_num': int, 'prev_block_hash': bytes, 'input_msgs': list,
+                                 'miners_votes': list, 'block_utc_time': bytes, 'miner_pub_key': bytes} #'prev_block' hash used to generate current blockhash
+        self.BLOCK_MSG_INDEX_FIELD = {0: 'version', 1: 'msg_type', 2: 'block_num', 3: 'prev_block_hash', 4: 'input_msgs',
+                                      5: 'miners_votes', 6: 'block_utc_time',  7: 'miner_pub_key'} #minerPubK is ALWAYS last field in msg or msgList
+        self.BLOCK_MSG_FIELD_INDEX = {'version': 0, 'msg_type': 1, 'block_num': 2, 'prev_block_hash': 3,
+                                       'input_msgs': 4, 'miners_votes': 5, 'block_utc_time': 6,
+                                       'miner_pub_key': 7}  # minerPubK is ALWAYS last field in msg or msgList
+
+        bk = [v for v in self.BLOCK_MSG_INDEX_FIELD if v not in self.BLOCK_MSG_FIELD_TYPE]
+        assert len(bk) > 0#todo disable
+        if len(bk) > 0:
+            return None
+        if block is not None:
+            f_i = [v for v in self.BLOCK_MSG_INDEX_FIELD]
+            b_k = block.keys()
+            f_k = [v for v in b_k if v not in f_i]
+            assert len(f_k) == 0#todo disable
+            if len(f_k) > 0:
+                return None
+
+
+    def getBlockFieldIndex(self, field_name):
+        if not field_name in self.BLOCK_MSG_INDEX_FIELD.values():
+            return None
+        return self.BLOCK_MSG_FIELD_INDEX(field_name)
+
+
+
+    def getBlockFieldValue(self, block_obj, field_name):
+        fields_index = self.getBlockFieldIndex(field_name) #[v for v in self.BLOCK_MSG_INDEX_FIELD if v == field_name]
+        if not fields_index is None: #len(fields_index) == 1:
+            return block_obj[fields_index] #
+        else:
+            return None
+
+
+    def insertGenesis(self): #, genesis_block):
+        gSK, gVK = tools.getKeysFromSeed('Miner0')
+        gSK2, gVK2 = tools.getKeysFromSeed('Miner1')
+        g_wallet = tools.to_HMAC(gVK2._key)
+
+        #Todo to remove
+        isWalletCreated = tools.createWallet(g_wallet)
+        assert isWalletCreated
+        assert tools.isDBvalue(g_wallet)
+        assert unpackb(tools.getDbKey(packb(g_wallet)))[b'version'] == tools.b(self.version)
+        isAssetCreated = tools.createAsset('1', ' MainCoin - FxCash ', 128000000000,
+                                           10, 1000, [], g_wallet,  desc='createAsset')
+        assert isAssetCreated
+
+        genesis_msg = tools.to_HMAC(' * GENESIS FX CRYPTO CASH COIN *')
+        utc_ts = tools.utc_timestamp_b()
+        unspent_input_genesis_tx = tools.MsgType.Type.UNSPENT_TX.value + genesis_msg.ljust(32)
+        genesis_ctx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value, [[unspent_input_genesis_tx]][0],
+                       [g_wallet][0], [tools.config.MAIN_COIN][0], [b'999999999.12345678'][0], b'0.001',
+                       utc_ts, gVK._key)
+        genesis_ctx_hmac = tools.to_HMAC(genesis_ctx)
+        utxo_ctx0 = tools.MsgType.Type.UNSPENT_TX.value + genesis_ctx_hmac
+        genesis_tx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value, [[unspent_input_genesis_tx]],
+                                    [g_wallet], [tools.config.MAIN_COIN], [b'999999999.12345678'], b'0.001',
+                                    [utxo_ctx0], utc_ts,
+                                    gVK._key)
+            #tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [[unspent_input_genesis_tx]],
+            #                         [g_wallet], '1', [b'999999999.12345678'], b'0.001',
+            #                         gVK._key) #TODO votes verified? + unspentTx + returnSelf after GENESIS
+        g_tx_signed_msg = tools.signMsg(packb(genesis_tx), gSK) #msgtype + msg
+        ##g_tx_hash = tools.to_HMAC(g_tx_signed_msg._message)
+        g_verified_sig, g_verified_msg = tools.verifyMsgSig(g_tx_signed_msg, gVK._key)
+        # tools.verify(g_signed_msg, VerifyKey(g_bin_signed_msg[-1]))
+        assert g_verified_sig
+        assert g_verified_msg == g_tx_signed_msg._message
+        g_signed_msg_and_key = (g_tx_signed_msg, gVK._key) #TODO persistKey2WalletIfNotExist
+        g_signed_msg_and_key_bytes = packb(g_signed_msg_and_key)#TODO salt(lastKnownBlockNum) in order to prevent duplicate TX in the same and the next blocks
+        g_tx_hash = tools.to_HMAC(g_signed_msg_and_key_bytes) ##g_signed_msg_and_key_bytes
+        print('Genesis TX hash = VerifyKey: ', g_tx_hash)
+        #TODo valid - temp disabled???
+        ##tools.insertDbKey(g_tx_hash, g_signed_msg_and_key_bytes, tools.DB.DB_PATH)
+        ##signed_msg, pub_key = unpackb(tools.getDbRec(g_tx_hash))
+        ##verified, msg = tools.verifyMsgSig(SignedMessage(signed_msg), pub_key)
+        ##assert verified
+
+        g_tx_hash_list = [tools.MsgType.Type.PARENT_TX_MSG.value + g_tx_hash] #[tools.MsgType.PARENT_TX_MSG + packb(g_tx_hash)]
+        #TODO
+        g_block_votes_list = [tools.MsgType.Type.VOTE_MSG.value + tools.to_HMAC('Miner Block Votes are Ignored in GENESIS block')] #['msg == minerMsg 32b hash :{msgSig, msgPk is not penaltied miner has wallet, fee}] #ignored onGenesis #todo rsa sigs from ecdsa
+        g_block_prev_block_hash = genesis_msg #ignored onGenesis
+        #
+        g_block_msg = ('1', tools.MsgType.Type.BLOCK_MSG.value, 0, g_block_prev_block_hash,
+                       g_tx_hash_list, g_block_votes_list, tools.utc_timestamp_b())
+        g_signed_block_msg = tools.signMsg(packb(g_block_msg), gSK)
+        assert isinstance(g_signed_block_msg, bytes)
+        g_signed_block_msg_and_key_bytes = packb((g_signed_block_msg, gVK._key))
+
+
+        genesis_block = g_signed_block_msg_and_key_bytes
+        genesis_block_hash = tools.to_HMAC(g_signed_block_msg_and_key_bytes) #(g_signed_block_msg) #genesis_block
+        sm = SignedMessage(unpackb(genesis_block)[0])
+        assert sm == g_signed_block_msg
+        assert VerifyKey(unpackb(genesis_block)[1])._key == gVK._key
+        isValidMsg = tools.isMsgValid(genesis_block)
+        block_umsg = unpackb(genesis_block)
+        isBlockSigVerified, block_msg_bin = tools.verifyMsgSig(block_umsg[0], block_umsg[1])
+        assert isBlockSigVerified
+        # todo isMinerValid(min_supply, penalties_limit)
+
+        #tools.insertDbKey(tools.MsgType.BLOCK_MSG + genesis_msg, 0) #insert Genesis block (blockHash, blockNum)
+        block_msg = tools.validateBlock(block_msg_bin)
+        assert block_msg
+        ##isBlockVerified = tools.verifyBlock(block_msg, genesis_block_hash) #TODO - After Genesis
+        ##assert isBlockVerified #TODO rollback onError
+        #tools.insertDbKey(validatedBlock[self.BLOCK_MSG_FIELD_INDEX.get("prev_block_hash")], b'GENESIS_0_BLOCK')
+        #tools.updateWallets(block_msg)
+        #tools.Transaction.validateTX #TODO
+
+        tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value + g_tx_hash, g_signed_msg_and_key_bytes)  # PTX SDB
+        tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
+        tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value + g_tx_hash, tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash) #SPENT DOUBLE check
+        tools.insertTxsToWallets(genesis_tx, tools.MsgType.Type.PARENT_TX_MSG.value + g_tx_hash,
+                                 tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash) #wallets update TODO state
+        print('d')
+
+        #sys.exit(0)
+
+        ##block_bin = tools.validateMsg(genesis_block)
+        ##assert block_bin is not False
+        ##block_verified, block_msg = tools.verifyMsg(block_bin)
+        #block_verified, block_msg = tools.verifyMsg(unpackb(block_decoded_msg))
+        #assert block_msg is not None
+        #block_hash = tools.to_HMAC(block_bin)
+        #tx_bin = tools.validateMsg(block_msg[0])
+        #tx_msg = tools.isPtxExist(tx_bin) #ptx_hash = tools.Crypto.to_HMAC(block_decoded_msg)
+        #tx_hash = tools.to_HMAC(tx_bin)
+
+#todo persist tools.to_HMAC(packb(genesis_tx)) #with pubk, check if unspentExist + checkPrevBlockHash in block
+
+        #todo refactor return false wirh raise Exception+rollback
+        #tools.insertDbKeys()
+        pass
 
     def sendBlock(self): #by MasterMiner
         pass
@@ -868,28 +1113,34 @@ class Block():
 
 
     def validateBlock(self, block_msg):
-        #print('ValidateTX...')
+        #print('ValidateBlock...')
         try:
-            if not block_msg[1] is self.MsgType.BLOCK_MSG:
+            block_umsg = block_msg
+            if isinstance(block_umsg, bytes):
+                block_umsg = unpackb(block_msg)
+            if not tools.MsgType.isValidType(block_umsg):
                 return False
-            if len(packb(block_msg)) > self.MsgType.BLOCK_MSG_MAX_SIZE:
+            if not block_umsg[1] is tools.b(self.MsgType.Type.BLOCK_MSG.value):
+                return False
+            if len(packb(block_umsg)) > self.MsgType.Type.BLOCK_MSG_MAX_SIZE.value:
                 return False #TODO with key
             if type(self) is Tools:
-                block_msg_fields = self.Block.BLOCK_MSG_FIELDS #TODO getMsgFields(msgType) + msgLimit
-                block_msg_fields_index = self.Block.BLOCK_MSG_FIELDS_INDEX
-                block_field_names = list(block_msg_fields_index.values()) #[0] #fields amount
-                for i in range(len(block_field_names)-1):
-                    field_value = block_msg[i]
-                    if type(field_value) is not block_msg_fields[block_field_names[i]]: #fields type
+                block_msg_fields = self.Block.BLOCK_MSG_FIELD_TYPE  # TODO getMsgFields(msgType) + msgLimit
+                block_msg_fields_index = self.Block.BLOCK_MSG_FIELD_INDEX
+                block_field_names = list(block_msg_fields_index.keys())  # [0] #fields amount
+                for i in range(len(block_field_names) - 1): #-1 is MsgSig, verified prev
+                    field_value = block_umsg[i]
+                    if type(field_value) is not block_msg_fields[block_field_names[i]]:  # fields type
                         return False
                     if (type(field_value) is list):
-                        for msg in field_value:
-                            #restricted_list_types = [v for v in list_value if type(v) not in (bytes, str, list)] #list_fields type
-                            #if len(restricted_list_types) > 0:
-                                 #return False
-                            if len(msg) != 32 or type(msg) is not bytes:
-                                return False
-                return block_msg
+                        for field in field_value:
+                            # restricted_list_types = [v for v in list_value if type(v) not in (bytes, str, list)] #list_fields type
+                            # if len(restricted_list_types) > 0:
+                            # return False
+                            if len(field) != 33 or type(field) is not bytes:  # 1b msgType + 32b hashId
+                                return False #TODO fieldType in MsgTypes
+
+                return block_umsg
             else:
                 return False
         except Exception as ex:
@@ -897,24 +1148,41 @@ class Block():
             return False
 
 
-
-    def verifyBlock(self, msgtype_arr):
-        to_persist_arr = []
-        arr_hash = tools.Crypto.to_HMAC(packb(msgtype_arr))
-        block_hash = tools.MsgType.BLOCK_MSG + arr_hash
-        if tools.isDBvalue(arr_hash) or tools.isDBvalue(block_hash):
+#todo to continue #tools.isDBvalue(msg_list[4][0]) + verifyTXs/msgs/other types
+    def verifyBlock(self, msg_list, block_hash):
+        if not isinstance(msg_list, list) or not msg_list:
             return False
-        for msgtype in msgtype_arr:
-            valid_msg = tools.validateMsg(msgtype)
-            if not valid_msg:
-                return False
-            if not tools.verifyMsg(valid_msg):
-                return False
-            #TODO get/add additional recs to persist byType -> tx + spent- unspent...
-        return to_persist_arr
+
+        if tools.isDBvalue(packb(block_hash)) or \
+                tools.isDBvalue(packb(tools.MsgType.BLOCK_MSG + block_hash)) or \
+                tools.isDBvalue(packb(msg_list[1] + packb(block_hash))):
+            return False #TODO verify miner sig/turn + prevBlockExist + PTX exist and not Spent
+
+        ptx_list = [tools.isDBvalue(ptx[tools.Transaction.TX_MSG_INDEX_FIELD["input_txs"]]) for ptx in msg_list]
+        if len(ptx_list) < len(ptx[tools.Transaction.TX_MSG_INDEX_FIELD["input_txs"]]):
+            pass #TODO getFromMinersMissingPTXs + wait 5sec for response? (withPriorityQ)
+            ptx_list = [tools.isDBvalue(ptx[tools.Transaction.TX_MSG_INDEX_FIELD["input_txs"]]) for ptx in msg_list]
+
+        if len(ptx_list) <= 0 or len(ptx_list) < len(ptx[tools.Transaction.TX_MSG_INDEX_FIELD["input_txs"]]):
+            return False # reject Block
+
+        return True
+        msg_list_persist = []
+        msg_hash = tools.Crypto.to_HMAC(packb(msg_list))
+        # block_hash = tools.MsgType.BLOCK_MSG + hash_list
+        # if tools.isDBvalue(hash_list) or tools.isDBvalue(block_hash):
+        #     return False
+        # for msgtype in msg_list:
+        #     valid_msg = tools.validateMsg(msgtype)
+        #     if not valid_msg:
+        #         return False
+        #     if not tools.verifyMsg(valid_msg):
+        #         return False
+        #     #TODO get/add additional recs to persist byType -> tx + spent- unspent...
+        # return msg_list_persist
 
 
-    def getBlock(self, block_hash): #get block msg
+    def getBlock(self, block_hash_or_num): #get block msg
         pass
 
     #@staticmethod
@@ -923,6 +1191,14 @@ class Block():
         if verified_block and type(verified_block) is list:
             print('TO_IMPLEMENT PERSIST TXs -> RM SDB')
             pass
+
+    def block2db(self, verified_decoded_block):
+        #validateVerifyEachMsg
+        #ignore/return  ifNotAssertedValidatedVerified
+        #persistTx -> createOrUpdateWallet
+        #persistBlock
+        # persistUnspentTxs | Msgs ... other types
+        pass
 
 
 class ServiceDb():
@@ -936,65 +1212,62 @@ class ServiceDb():
         self.ROOT_DIR = config.ROOT_DIR
         self.NODE_SERVICE_DB = config.NODE_SERVICE_DB
         self.NODE_DB = config.NODE_DB
+        self.WALLETS = config.WALLETS
         self.LOGS = config.LOGS
         print('NODE_DB, NODE_SERVICE_DB', self.NODE_DB, self.NODE_SERVICE_DB)
         self.createNodeDbIfNotExist()
         self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None, check_same_thread=False)
         self.createTablesIfNotExist()
-        self.SQL_INSERT_MSG = """insert into v1_pending_msg 
-                                       (msg, pub_key, msg_hash, from_addr, 
-                                       node_verified, node_date) 
-                                       values (?,?,?,?,?,?) """
-        self.SQL_INSERT_TX = """insert into v1_pending_tx 
-                                (ver_num, msg_type, tx_list, to_addrs, asset_type, 
-                                amount_list, pub_keys_list, msg_hash, from_addr, 
-                                node_verified, node_date) 
-                                values (?,?,?,?,?,?,?,?,?,?,?) """
-        self.SQL_INSERT_BLOCK = """insert into v1_pending_blk 
-                                (ver_num, msg_type, block_num, msg_list, 
-                                master_pub_key, msg_hash, from_addr, 
-                                node_verified, node_date) 
-                                values (?,?,?,?,?,?,?,?,?) """
+
 
 
     def createTablesIfNotExist(self):
-        ddl_v1_pending_msg = '''
-                                   CREATE TABLE  if not exists  v1_pending_msg (
-                                   'msg'	BLOB NOT NULL,
-                                   'pub_key'	BLOB NOT NULL,
-                                   'msg_type'	TEXT NULL,
-                                   'msg_hash'   TEXT NOT NULL,
-                                   'from_addr'	TEXT NOT NULL,
-                                   'node_verified'	INTEGER DEFAULT 0,
-                                   'node_date'	timestamp default current_timestamp,
-                                    PRIMARY KEY(msg_hash)
-                               );
-                               '''
+        ddl_v1_pending_msg = '''CREATE TABLE  if not exists  v1_pending_msg 
+                                (
+                                 'signed_msg_hash' TEXT NOT NULL,
+                                 'signed_msg'	BLOB NOT NULL,                                 
+                                 'pub_key'	BLOB NOT NULL,
+                                 'msg_priority' INTEGER DEFAULT 0,
+                                 'node_verified'	INTEGER DEFAULT 0,
+                                 'node_date'	timestamp default current_timestamp,                                 
+                                 PRIMARY KEY(signed_msg_hash)                                 
+                                );
+                             '''
+
+                                       #  '''
+                                       #     CREATE TABLE  if not exists  v1_pending_msg (
+                                       #     'signed_msg_hash' TEXT NOT NULL,
+                                       #     'signed_msg'	BLOB NOT NULL,
+                                       #     'pub_key'	BLOB NOT NULL,
+                                       #     'node_verified'	INTEGER DEFAULT 0,
+                                       #     'node_date'	timestamp default current_timestamp,
+                                       #      PRIMARY KEY(signed_msg_hash)
+                                       # );
+                                       # '''
+        ddl_v1_pending_blk = '''
+                                  CREATE TABLE  if not exists  v1_pending_blk (
+                                  'version'	TEXT NOT NULL,
+                                  'msg_type'	TEXT NOT NULL,
+                                  'block_num'	TEXT NOT NULL,
+                                  'msg_list'	TEXT NOT NULL,
+                                  'master_pub_key'	BLOB NOT NULL,
+                                  'msg_hash'   TEXT NOT NULL,
+                                  'from_addr'	TEXT NOT NULL,
+                                  'node_verified'	INTEGER DEFAULT 0,
+                                  'node_date'	timestamp default current_timestamp,
+                                   PRIMARY KEY(msg_hash)
+                              );
+                              '''
 
         ddl_v1_pending_tx = '''
                            CREATE TABLE  if not exists  v1_pending_tx (
-                           'ver_num'	TEXT NOT NULL,
+                           'version'	TEXT NOT NULL,
                            'msg_type'	TEXT NOT NULL,
-                           'tx_list'	TEXT NOT NULL,
+                           'input_txs'	TEXT NOT NULL,
                            'to_addrs'	TEXT NOT NULL,
                            'asset_type'	TEXT NOT NULL,
-                           'amount_list'	TEXT NOT NULL,                                         
-                           'pub_keys_list'	BLOB NOT NULL,
-                           'msg_hash'   TEXT NOT NULL,
-                           'from_addr'	TEXT NOT NULL,
-                           'node_verified'	INTEGER DEFAULT 0,
-                           'node_date'	timestamp default current_timestamp,
-                            PRIMARY KEY(msg_hash)
-                       );
-                       '''
-
-        ddl_v1_pending_blk = '''
-                           CREATE TABLE  if not exists  v1_pending_blk (
-                           'ver_num'	TEXT NOT NULL,
-                           'msg_type'	TEXT NOT NULL,
-                           'block_num'	TEXT NOT NULL,
-                           'msg_list'	TEXT NOT NULL,
-                           'master_pub_key'	BLOB NOT NULL,
+                           'amounts'	TEXT NOT NULL,                                         
+                           'pub_keys'	BLOB NOT NULL,
                            'msg_hash'   TEXT NOT NULL,
                            'from_addr'	TEXT NOT NULL,
                            'node_verified'	INTEGER DEFAULT 0,
@@ -1004,7 +1277,7 @@ class ServiceDb():
                        '''
 
 
-        ddl_list = [ddl_v1_pending_msg, ddl_v1_pending_tx, ddl_v1_pending_blk]
+        ddl_list = [ddl_v1_pending_msg, ddl_v1_pending_blk, ddl_v1_pending_tx]
         con = self.SERVICE_DB
         try:
             with con:
@@ -1070,43 +1343,34 @@ class ServiceDb():
             #tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
             return False
 
-    def getSqlValues(self, decoded_msg, pub_key):
-        umsg = unpackb(decoded_msg)
-        from_addr = tools.Crypto.to_HMAC(umsg[1])
-        values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in umsg]
-        values += [sqlite3.Binary(pub_key), msg_hash, from_addr, 0, tools.utc()]
-        return values
 
-    #TODO continue with rep_msg
-    def insertValidMsg(self, msg_type, socket): #TODO insert/consume asyncio Q
-        if isinstance(msg_type[1], bytes):
-            msgType = unpackb(msg_type[1])
-
-        # if msg_type[1] == tools.MsgType.BLOCK_MSG:
-        #     print('OK: Msg is Valid')
-        #     rep_socket.send(b'OK: Msg is Valid')
-
-
-
-        msg_hash = tools.Crypto.to_HMAC(rep_msg)
-        msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
-        msg_in_sdb = tools.getServiceDbTx(msg_hash)
-        ####
-        if msg_in_sdb is None and msg_in_db is None:  # TODO reject if ipaddr > 1 or from_addr within the same block
-            #tools.Q.put_nowait({'insert': rep_msg, 'priority': 0}) #TODO
-            #return socket.send(b'OK: Msg is Valid')
-        # else retun socket.send(b'ERROR: Msg Exist')
-            umsg = unpackb(rep_msg)
-            from_addr = tools.Crypto.to_HMAC(umsg[1])
-            values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
-            values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
-
-            # ServiceDb().getServiceDB().
-            insert = tools.SERVICE_DB.insertServiceDB(
-                "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, "
-                "asset_type, amount_list, pub_keys_list, msg_hash, from_addr, "
-                "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
-                values)
+    def persistPendingMsg(self, signed_msg_hash, signed_msg, pub_key, msg_priority=None):
+        ddl_v1_pending_msg = ''''CREATE TABLE  if not exists  v1_pending_msg 
+                                (
+                                 'signed_msg_hash' TEXT NOT NULL,
+                                 'signed_msg' BLOB UNIQUE NOT NULL,                                 
+                                 'pub_key'	BLOB NOT NULL,
+                                 'msg_priority' INTEGER DEFAULT 0,
+                                 'node_verified'	INTEGER DEFAULT 0,
+                                 'node_date'	timestamp default current_timestamp,                                 
+                                 PRIMARY KEY(signed_msg_hash)
+                                );
+                             '''
+        msg_priority = 0 if msg_priority is None else msg_priority
+        sql = "INSERT INTO v1_pending_msg (signed_msg_hash, signed_msg, pub_key, msg_priority) values (?,?,?,?)"
+        print("INSERT INTO v1_pending_msg from %s with %s priority" % (signed_msg_hash, msg_priority))
+        con = tools.SERVICE_DB.getServiceDB()
+        try:
+            with con:
+                cur = con.cursor()
+                con.execute(ddl_v1_pending_tx)
+                cur.execute(sql, [signed_msg_hash, sqlite3.Binary(signed_msg), sqlite3.Binary(pub_key), msg_priority])
+                con.commit()
+        except Exception as ex:
+                     # logger = Logger('Test')
+                     # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
+                     # logger.logp(err_msg, logging.ERROR)
+            return None
 
 
 class Db():
@@ -1115,19 +1379,30 @@ class Db():
         self.LEVEL_DB = None
         self.DB_PATH = db_path
 
-    def insertDbKey(self, bin_key, bin_value, db_path, override=False):
+    def insertDbKey(self, bin_key, bin_value, db_path=None, override=False, desc=''):
         # print('Insert to DB %s with Closed connection %s, key: %s, value: %s ' % (db_path, DB is None, bin_key, bin_value))
+        caller_n = sys._getframe().f_back.f_code.co_name
         try:
+            if db_path is None:
+                db_path = tools.DB.DB_PATH
+            if not isinstance(bin_key, bytes):
+                bin_key = tools.packb(bin_key)
+            if not isinstance(bin_value, bytes):
+                bin_value = tools.packb(bin_value)
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
             if self.getDbKey(bin_key, db_path) is None or override:
                 self.DB.LEVEL_DB.put(bin_key, bin_value) #Put is not plyvel
-                print("Inserting Key/Value: %s/%s" % (bin_key, bin_value))
+                print("%s %s Inserting Key/Value: \nKey: %s \nValue: %s" % (desc, caller_n, bin_key, bin_value))
                 return True
+            else:
+                print('%s %s ERROR: Key %s Exist in DB' % (desc, caller_n, bin_key))
+                return False
         except Exception as ex:
-            err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
-            bin_key, bin_value, Logger.exc_info(), ex)
-            self.logger.logp(err_msg, logging.ERROR)
+            err_msg = '%s %s Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
+                desc, caller_n, bin_key, bin_value, Logger.exc_info(), ex)
+            #tools.logger.logp(err_msg, logging.ERROR)
+            print('ERROR:', err_msg)
             return None
 
 
@@ -1147,9 +1422,11 @@ class Db():
 
 
 
-    def getDbKey(self, bin_key, db_path):
+    def getDbKey(self, bin_key, db_path=None):
+        if db_path is None:
+            db_path = self.DB.DB_PATH
         if type(bin_key) is not bytes:
-            bin_key = str(bin_key).encode() #self.b(bin_key)
+            bin_key = tools.packb(bin_key)#str(bin_key).encode() #self.b(bin_key)
         try:
             _db = None
             if type(self) is Tools: #db_path is None:
@@ -1157,7 +1434,7 @@ class Db():
                 _db = self.DB.LEVEL_DB
             else:
                 _db_path = db_path
-                _db = self.LEVEL_DB
+                _db = tools.DB.LEVEL_DB
             if _db is None:
                 _db = plyvel.DB(db_path) #leveldb.LevelDB(_db_path)
             return bytes(_db.get(bin_key)) #bytes(_db.Get(bin_key))
@@ -1177,8 +1454,13 @@ class Db():
             self.logger.logp(err_msg, logging.ERROR)
 
 
-    def isDBvalue(self, bin_key, db_path=None, dbm='db'):
+    def isDBvalue(self, bin_key, db_path=None, dbm='db', print_caller=''):
+        caller_n = sys._getframe().f_back.f_code.co_name
+        if print_caller != '':
+            print('Caller: ' + caller_n)
         try:
+            if not isinstance(bin_key, bytes):
+                bin_key = tools.packb(bin_key)
             if db_path is None:
                 _db_path = self.DB.DB_PATH
                 dbm = self.DB.LEVEL_DB
@@ -1189,6 +1471,8 @@ class Db():
                 dbm = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(_db_path)  # Once init held by the process
             value = dbm.get(bin_key) #dbm.Get(bin_key)
             # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
+            if value is None or value == b'' or not isinstance(value, bytes):
+                return False
             return True
         except Exception as ex:
             return False
@@ -1203,8 +1487,7 @@ class Db():
             value = self.getDbKey(msg_hash, _db_path) # self.DB.DB_PATH
             if value is not None:
                 return value #self.decodeMsg(unpackb(unpackb(value)[0]))
-            else:
-                return None
+            return None
         except Exception as ex:
             return None
 
@@ -1299,39 +1582,42 @@ class Node():
 
                 error = ""
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
-
-                #TODO to continue
                 validated_msg = tools.validateMsg(rep_msg)
-
-                if not validated_msg or validated_msg is None:
-                    print('Error: Msg Validation failed')
-                    rep_socket.send(b'Error: Msg Validation failed')
-                msgType = validated_msg[1]
-                if isinstance(validated_msg[1], bytes):
-                    msgType = unpackb(validated_msg[1])
-               # print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
-                #TODO to continue
-                if validated_msg[1] == tools.MsgType.BLOCK_MSG:
-                    print('OK: Block is Valid')
-                    rep_socket.send(b'OK: Block is Valid')
+               #  if not validated_msg or validated_msg is None:
+               #      print('Error: Msg Validation failed')
+               #      rep_socket.send(b'Error: Msg Validation failed')
+               #  msgType = validated_msg[1]
+               #  if isinstance(validated_msg[1], bytes):
+               #      msgType = unpackb(validated_msg[1])
+               # # print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
+               #  #TODO to continue
+               #  if validated_msg[1] == tools.MsgType.BLOCK_MSG:
+               #      print('OK: Msg is Valid')
+               #      rep_socket.send(b'OK: Msg is Valid')
 
                 msg_hash = tools.Crypto.to_HMAC(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 msg_in_sdb = tools.getServiceDbTx(msg_hash)
-                if msg_in_sdb is None and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
+                if not msg_in_sdb and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
-                    from_addr = tools.Crypto.to_HMAC(umsg[1])
-                    values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
-                    values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
-                    #ServiceDb().getServiceDB().
-                    insert = tools.SERVICE_DB.insertServiceDB(
-                        "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, "
-                        "asset_type, amount_list, pub_keys_list, msg_hash, from_addr, "
-                        "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
-                        values)
+                    #from_addr = tools.Crypto.to_HMAC(umsg[1])
 
-                    #tools.SERVICE_DB.insertServiceDBpendingTX(
-                    #     "insert into v1_pending_tx (ver_num, msg_type, tx_list, to_addrs, asset_type, amount_list, pub_keys_list, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
+                    # values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
+                    # values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
+                    # #ServiceDb().getServiceDB().
+                    # insert = tools.SERVICE_DB.insertServiceDB(
+                    #     "insert into v1_pending_tx (version, msg_type, input_txs, to_addrs, "
+                    #     "asset_type, amounts, pub_keys, msg_hash, from_addr, "
+                    #     "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
+                    #     values)
+
+                    #tmp test
+                    # tools.insertDbKey(tools.to_HMAC(rep_msg), rep_msg, tools.NODE_DB_TMP)
+                    insert = True
+                    #tmp end
+
+                    # tools.SERVICE_DB.insertServiceDBpendingTX(
+                    #     "insert into v1_pending_tx (version, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                     #     values)
                     # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
 
@@ -1345,8 +1631,8 @@ class Node():
                     # restored_msg
 #TODO to continue restored_msg[0] == validated_msg, packb(restored_msg) == rep_msg
 
-                    #TODO Q + 1000 threads max or asyncio
-                    self.Q.put_nowait({'insert': rep_msg}) if insert else None #TODO func
+                    #TODO Q
+                    self.Q.put_nowait(rep_msg) if insert else None
                     #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
                     msg_hash = tools.Crypto.to_HMAC(rep_msg) #tools.Crypto.to_HMAC(unpackb(rep_msg)[0]) #tools.Crypto.to_HMAC(packb(umsg[0])) #tools.Crypto.to_HMAC(rep_msg)#tools.Crypto.to_HMAC(packb(umsg))
                     print('msg hash: ', msg_hash)
@@ -1452,41 +1738,429 @@ class Node():
 
 
 class Wallet():
-    def __init__(self):
-        self.INPUTS = 'INPUTS'
-        self.OUTPUTS = 'OUTPUTS'
-        self.ASSSETS = 'ASSETS'
+    def __init__(self, version='1', pub_addr=None, sig_type='1/1', multi_sig_pubkeys=[], assets=[], msgs=[], contracts=[]):
+        self.pub_addr = pub_addr
+        self.path = os.path.join(ROOT_DIR, "..", "WALLETS")
+        self.data = {}
+        self.data['version'] = version  #pub_keys for multiSig, for 1sig is not required
+        self.data['sig_type'] = sig_type
+        self.data['multi_sig_pubkeys'] = multi_sig_pubkeys
+        self.data['wallet_id'] = None #hash(pub_key._key)
+        self.data['asset_msgs'] = {'asset_id': None, 'inputs': [], 'outputs': []}
+        self.data['assets'] = assets #TODO create asset /later assets FX,Popular, ...etc
+        self.data['msgs'] = msgs
+        self.data['contracts'] = contracts
+        #self.Q = Queue.queue(-1)
 
-    def insertTxToWallet(self, pub_addr, tx_hash, tx):
-        if tools.isDBvalue(tx_hash) is not None:
-            return False
+        self.WLT_DATA_FIELDS = {'version': str, 'sig_type': str, 'multi_sig_pubkeys': list, \
+                                'wallet_id': str, 'assets': list, 'msgs': list, \
+                                'contracts': list}
+            #{'version': str, 'inputs': list, 'outputs': list, 'pub_keys': list}
+
+        self.WLT_DATA_FIELDS_INDEX = {0: 'version', 1: 'sig_type', 3: 'multi_sig_pubkeys', \
+                                      4: 'wallet_id', 5: 'assets', 6: 'msgs', 7: 'contracts'}
+            #{0: 'version', 1: 'inputs', 2: 'outputs', 3: 'pub_keys'}
+
+        #vernum,pubk - insecure, hence walletId k= pubks(hashId)?
+        #sig  addrs ?
+        #wallet_struct = {'vernum': b'1', sig_accept: '1/1', 'sig_addrs': [b'x' * 32] , 'assets': {'inputs': [], 'outputs: []'}, 'messages': [], 'contracts': []}
+
+        #self.INPUTS = 'inputs'
+        #self.OUTPUTS = 'outputs'
+        #self.ASSSETS = 'ASSETS' #recalc onLoad, onUpdate
+
+    # TODO 4multisi, 4 1sig it's 1/1 + wallet generated from TX with fee deduction
+    # TODo 4multisig wallets TX doesnt create wallet,
+    #  but creationWithExistingPKaddrs required + WalletID_Hash = ALL_PKs_Hash
+    # def createWallet(self, msg) #, pub_keys, sig_accept_num):
+    #     cmd = b"cW" #todo globals
+    #     #if verifyMsg keyLen and len > 1
+    #     pks = pub_keys if isinstance()
+    #     pass
+
+
+    def mkdir(self, dir):
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+    def isWalletExist(self, bin_msg):
         try:
-            wallet = self.getDbWallet(pub_addr)
-            assets = [{x: wallet[self.ASSSETS][x]} for x in wallet[self.ASSSETS].keys()]
-            tx_amount = [a for a in tx['amount_list']]
-            if tx['asset_type'] not in tx[self.ASSSETS].keys():
-                pass #TODO to continue
-                #'{0:.8g}'.format(sum(Decimal(x) for x in d.values()))  '3.9125000'
-                # '{0:.8g}'.format(sum(d.values())) # '3.9125'
-
-            wallet[self.INPUTS] += tx[self.INPUTS]
-            wallet[self.OUTPUTS] += tx[self.OUTPUTS]
-            return True
-        except Exception as ex:
+            pk = unpackb(bin_msg)[1]
+            if not tools.isDBvalue(tools.Crypto.to_HMAC(pk)):
+                return False
+            else:
+                return True
+        except:
             return False
 
-    def getDbWallet(self, pub_addr):
+
+    def getWalletchecksum(self):
+        pass #used for updates
+
+    def isPrevDataExist(self):
+        pass  # used
+
+
+    def createWallet(self, pubkey_hash_id):
+        if not tools.isDBvalue(pubkey_hash_id):
+            tools.insertDbKey(pubkey_hash_id, {'version': tools.version, 'assets': \
+                {tools.config.MAIN_COIN: {'inputs': [], 'outputs': []}}}, \
+                 tools.DB.DB_PATH) #todo change '1' to meaningful coin name
+        if not tools.isDBvalue(pubkey_hash_id):
+            return False
+        return True
+
+
+    #todo to continue after genesis
+    def updateWallets(self, blk_msg): #block_msg = unpackb(block_msg_bin)
+        insert_q = Queue.queue(-1)
+        block_num = blk_msg[tools.Block.BLOCK_MSG_FIELD_INDEX.get("block_hash")]
+        inputs_idx = tools.Block.BLOCK_MSG_FIELD_INDEX.get("input_msgs")
+        ptxs = [m for m in blk_msg[inputs_idx] if not tools.isDBvalue(m)]
+        if len(ptxs) > 0 or len(ptxs) != len(blk_msg[inputs_idx]):
+            return False # reject block
+        #[insert_q.put((ptx[1:]) for ptx in ptxs)
+        pass
+        return True
+
+
+    def updateWallet(self, wallet_id, msg_hash, decoded_msg): #wallet_id = hash(pub_key)
+        if not tools.isDBvalue(wallet_id):
+            isWalletExist = tools.createWallet(wallet_id)
+            if not isWalletExist:
+                return False
+            else:
+                tools.insertDataToWallet(wallet_id, msg_hash, decoded_msg)
+        pass
+
+
+    def insertDataToWallet(self, msg_hash, decoded_msg):
+        if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
+            pass
+            #self.insertTxToWallet(wallet_id, msg_hash, decoded_msg) #? decoded_msg = asset: ioHash, amount
+        elif decoded_msg[1] == tools.MsgType.SPENT_TX:
+            pass
+        elif decoded_msg[1] == tools.MsgType.UNSPENT_TX:
+            pass
+        elif decoded_msg[1] == tools.MsgType.MINER_FEE_TX:
+            pass
+        elif decoded_msg[1] == tools.MsgType.MINER_ISSUE_TX:
+            pass
+        else:
+            pass #TODO to continue the list/rest + return updatedWalletHashState
+
+    #TODO to continue
+    # def sendTX(self, sign_key, version, msg_type, txs_list=[], utc_ts, pub_key):
+    #     try:
+    #         #txs_list = [{asset1, inputs, amount, to_addr}, {asset2, inputs, amount, to_addr}]
+    #         if len([i for i in txs_list for i in i if not type(i)] is list) > 0 or \
+    #                 (len(txs_list) > 0 and len([len(i) for i in txs_list if len(i) != len(txs_list[0])])) > 0 or\
+    #                               len(txs_list) > tools.PTX_TX_LIMIT:
+    #             return None # validation failed
+    #         pub_addr = tools.to_HMAC(pub_key)
+    #         for tx in txs_list:
+    #             # tx_obj = tools.obFromTxList
+    #             # tx_obj["asset"] = tx["asset"]
+    #             # tx_obj["asset"] = tx["inputs"]
+    #             # tx_obj["asset"] = tx["amount"]
+    #             # tx_obj["to_addr"] = tx["to_addr"]
+    #             #{"asset" = None, "inputs" = None, "amount": None, "to_addr" = None}
+    #             if self.getLocalWalletUnspentAssets(pub_addr, tx["asset"]) < tx["amount"]:
+    #                 return None # insuficient funds
+    #             for inps in tx["inputs"]:
+    #                 #TODO getFromMinerRequest
+    #                 pass
+
+        # tools.verify(g_signed_msg, VerifyKey(g_bin_signed_msg[-1])) #pub_key
+
+        # print('\n*****Genesis wallet Saved Local*****\n', tools.WALLET.saveLocalWallet(g_wallet, wallet_data_bin))
+        # ua = tools.WALLET.getLocalWalletUnspentAssets(pub_addr)
+        # print("Wallet", g_wallet, " Unspent amounts\n", ua)
+        #exit(0)
+
+        #utc_ts = tools.utc_timestamp_b()
+        #tx = tools.Transaction.setTX()
+        # unspent_input_genesis_tx = tools.MsgType.Type.UNSPENT_TX.value + genesis_msg.ljust(32)
+        # genesis_ctx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value, [[unspent_input_genesis_tx]][0],
+        #                [g_wallet][0], [tools.config.MAIN_COIN][0], [b'999999999.12345678'][0], b'0.001',
+        #                utc_ts, gVK._key)
+        # genesis_ctx_hmac = tools.to_HMAC(genesis_ctx)
+        # utxo_ctx0 = tools.MsgType.Type.UNSPENT_TX.value + genesis_ctx_hmac
+        # genesis_tx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value, [[unspent_input_genesis_tx]],
+        #               [g_wallet], [tools.config.MAIN_COIN], [b'999999999.12345678'], b'0.001',
+        #               [utxo_ctx0], utc_ts,
+        #               gVK._key)
+        # # tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [[unspent_input_genesis_tx]],
+        # #                         [g_wallet], '1', [b'999999999.12345678'], b'0.001', #TODO to fix rounding Decimal
+        # #                         gVK._key) #TODO votes verified? + unspentTx + returnSelf after GENESIS
+        # g_tx_signed_msg = tools.signMsg(packb(genesis_tx), gSK)
+
+        # bin_signed_msg = self.signTX(version, msg_type, input_txs, to_addrs, asset_type, amounts, seed=seed)
+        # if bin_signed_msg is not None and host is not None and port is not None:
+        #     if sendTx and bin_signed_msg is not None:
+        #         tools.sendMsgZmqReq(packb(bin_signed_msg), host, port)
+        # return bin_signed_msg
+
+
+    #after genesis and vlidation for db, assets, amounts, unspent for sender/reciever
+    def insertTxsToWallets(self, ptx_msg, ptx_hash, block_hash): #pub_addr, input_txs, asset_id, amount, inputs=[], outputs=[]):
+        # #TODO if walletNotExist add createWalletFee to MinersPool
+        #TODo if sdb valid_verified(msg)->persist/remove in updateWallet? - after genesis
+        #ptx, pub_k = tools.getDbRec(ptx_msg_hash) #TODO getFromSDB(isVerifiedMsgAndAmount) - after genesis
+        #pub_addr = tools.to_HMAC(pub_k)
+        #if tools.isDBvalue(pub_addr) is None:
+        #created = tools.createWallet(pub_addr)
+        try:
+            unspent_itxs = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["input_txs"]]
+            assets = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["asset_type"]]
+            amounts = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["amounts"]]
+            recipients = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["to_addrs"]]
+            sender_addr = tools.to_HMAC(ptx_msg[-1])
+            if len(assets) != len(amounts) or len(amounts) != len(unspent_itxs) or len(unspent_itxs) != len(recipients):
+                return False # missing data
+            not_existing_assets = [a for a in assets if not tools.isDBvalue(a)]
+            if len(not_existing_assets) > 0:
+                return False #assets not yet created in the blockchain
+            tools.createWallet(sender_addr) #if multisig #TODO if fee on create is required
+            sender_wallet = self.getDbWallet(sender_addr)
+            for i in range(len(recipients)):
+                tools.createWallet(recipients[i])
+                reciever_wallet = self.getDbWallet(recipients[i])
+                if not reciever_wallet or not sender_wallet:
+                    return False
+
+                if not assets[i].encode() in reciever_wallet[b"assets"]:
+                    reciever_wallet[b"assets"][assets[i]] = {b'inputs': [], b'outputs': []}
+                if not assets[i] in sender_wallet[b"assets"]:
+                    sender_wallet[b"assets"][assets[i].encode()] = {'inputs': [], 'outputs': []}
+                #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
+                reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5], ptx_hash))
+                reciever_wallet[b"assets"][assets[i].encode()][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
+                tools.insertDbKey(reciever_utxi, ptx_hash) #new unspent tx
+                tools.insertDbKey(recipients[i], reciever_wallet, override=True)
+                print("Payment of %s %s coins from %s to wallet %s" % (assets[i], amounts[i], sender_addr, recipients[i]))
+                print("Reciever Wallet:\n", reciever_wallet)
+                sender_wallet = self.getDbWallet(sender_addr)  # reopen for update or change ?
+                sender_wallet[b"assets"][assets[i].encode()][b'outputs'].append([reciever_utxi, amounts[i], ptx_hash])
+                tools.insertDbKey(sender_addr, sender_wallet, override=True)
+                print("Payment from %s to wallet %s of  %s %s coins" % (sender_addr, recipients[i], assets[i], amounts[i]))
+                print("Sender Wallet:\n", sender_wallet)
+            #[tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value + unspent_itxs[i][1:], block_hash) for i in unspent_itxs for i in unspent_itxs[i]]
+            sender_utxo = [i for i in unspent_itxs for i in i]
+            for i in range(len(sender_utxo)):
+                spent_tx_output = tools.MsgType.Type.SPENT_TX.value + sender_utxo[i][1:]
+                tools.insertDbKey(spent_tx_output, block_hash)
+                print("SPENT TX", spent_tx_output)
+            print("unspent_itxs marked as SPENT\n", unspent_itxs)
+            print('\n*****Genesis wallet Reciever*****\n', unpackb(tools.getDbRec(recipients[0])))
+            #print('\n*****Genesis wallet Receiver*****\n', unpackb(tools.getDbRec('e2316965114c5404fe58ef0d5e2bc578')))
+
+            #TODO to continue, to think of timestamp in block_msg + validation prev amounts, txs? +-5m
+            #TODO - supress wallet's redundant bytes: version?->v assets:a inputs:i outputs:o contracts:c msg:m ...etc
+
+            # assets = [{x: wallet[self.ASSSETS][x]} for x in wallet[self.ASSSETS].keys()]
+            # tx_amount = [a for a in tx['amounts']]
+            # if tx['asset_type'] not in tx[self.ASSSETS].keys():
+            #     pass #TODO to continue
+            #     #'{0:.8g}'.format(sum(Decimal(x) for x in d.values()))  '3.9125000'
+            #     # '{0:.8g}'.format(sum(d.values())) # '3.9125'
+            #
+            # wallet[self.INPUTS] += tx[self.INPUTS]
+            # wallet[self.OUTPUTS] += tx[self.OUTPUTS]
+            return True #TODO state for blockchain integrity
+        except Exception as ex:
+            print("Exception: ", ex)
+            tools.printStackTrace(ex)
+            return False
+
+    def getDbWallet(self, pub_addr): #TODO at least same result from 3 random miners /byVerify for expected StateHash + report minerForPenalty
         wallet = tools.getDbRec(pub_addr)
         if wallet is None:
-            return {self.INPUTS: [], self.OUTPUTS: [], self.ASSSETS: {}}
+            return False #self #{self.INPUTS: [], self.OUTPUTS: [], self.ASSSETS: {}}
         else:
             return unpackb(wallet)
 
-    def getWalletUnspentAsset(self, asset_type):
+
+    def isWalletVerified(self, pub_addr):
+        return True #todo miner * 3 varification + prevData exist
+        #pass
+
+
+    def reportInconsistentWallet(self, pub_addr):
+        return True
+        #pass
+
+
+    def encodeLocalWallet(self, wallet_bin_data, pwd):
+       return wallet_bin_data
+       #pass #TODO
+
+
+    def decodeLocalWallet(self, wallet_bin_data, pwd):
+       return wallet_bin_data #TODO
+       #pass
+
+
+    def saveLocalWallet(self, pub_addr, bin_data): #todo pwd protection and encoding
+        wallet_path = os.path.join(self.path, pub_addr + '.wallet')
+        if not self.isWalletVerified(pub_addr):
+            self.reportInconsistentWallet(pub_addr)
+            return False
+        try:
+            if os.path.exists(wallet_path):
+                os.rename(wallet_path, wallet_path + ".tmp")
+            with open(wallet_path, "wb") as wallet:
+                wallet.write(self.encodeLocalWallet(bin_data, "TODO"))
+                os.remove(wallet_path + ".tmp")
+            return True
+        except Exception as ex:
+            if os.path.exists(wallet_path + ".tmp"):
+                os.remove(wallet_path)
+                os.rename(wallet_path + ".tmp", wallet_path)
+            return False
+
+
+    def getLocalWalletUnspentAssets(self, pub_addr, asset_type=None):
+        try:
+            wallet_path = os.path.join(tools.WALLET.path, pub_addr + '.wallet')
+            with open(wallet_path, "rb") as read_wallet:
+                wallet_data = unpackb(self.decodeLocalWallet(read_wallet.read(), "TODO")) #TODO encrypted filed or sqlite db
+                if asset_type is None:
+                    # todo field indexing + stateNotPending?
+                    unspent_assets = {}
+                    for a in wallet_data[b"assets"]:
+                        utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][a][b"inputs"]])
+                        utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs"]])
+                        if utxos_total >= utxis_total:
+                            return None
+                        else:
+                            #utxis = set()
+                            #[utxis.add(inps[0]) for inps in wallet_data[b"assets"][a][b"inputs"]]
+                            utxis_amounts = [(inps[0], inps[1]) for inps in wallet_data[b"assets"][a][b"inputs"]]
+                            unspent_assets[a] = (utxis_total - utxos_total), utxis_amounts
+                    return unspent_assets
+                else:
+                    utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][asset_type][b"inputs"]])
+                    utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][asset_type][b"outputs"]])
+                    if utxos_total >= utxis_total:
+                        return None
+                    else:
+                        utxis_amounts = [(inps[0], inps[1]) for inps in wallet_data[b"assets"][a][b"inputs"]]
+                        return (utxis_total - utxos_total), utxis_amounts
+
+        except:
+            return None
+
+
+    def setTx(self, pub_key, asset_types=[], amounts=[], to_addrs=[], service_fee=b"0.001"): #todo set fee from config+validate min 4 miners
+        pub_addr = tools.to_HMAC(pub_key)
+        ua  = self.getLocalWalletUnspentAssets(pub_addr)
+        if ua is None:
+            return None
+        else:
+            if len(asset_types) != len(amounts) or len(amounts) != len(to_addrs) or len(amounts) > Structure().PTX_TX_LIMIT:
+                return None
+            utc_ts = tools.utc_timestamp_b()
+            assetsU = set()
+            [assetsU.add(a) for a in asset_types if a not in assetsU]
+            total_wallet_asset_amount = {}
+            change_wallet_asset_amount = {}
+            change_wallet_asset_itx = {}
+            asset_itxs = []
+
+            for a in assetsU: #check that assets exist in the local wallet and tx's funds doesn't exceeds
+                if not a in ua.keys():
+                    return None
+                wallet_asset_amount = sum([Decimal(amount[-1].decode()) for amount in ua[a][1]])
+                tx_asset_amount = sum([Decimal(amounts[i].decode()) for i in range(len(amounts)) if asset_types[i] == a])
+                total_service_fee = Decimal(service_fee.decode()) * len([c for c in asset_types if c==a])
+                if (tx_asset_amount + total_service_fee) > wallet_asset_amount:
+                    return None
+                total_wallet_asset_amount[a] = wallet_asset_amount
+                change_wallet_asset_amount[a] = wallet_asset_amount
+
+
+            for i in range(len(asset_types)): #Distribute wallet inputs+service fees per asset
+                # Create a list of ascending by amount transactions, get rid of numerous itxs
+                sorted_itxs = sorted(ua[asset_types[i]][1], key=lambda x: x[1])
+                included_itxs = []
+                included_itxs_amount = 0
+                for j in range(len(sorted_itxs)):
+                    ctx_amount = Decimal(amounts[j].decode()) + Decimal(service_fee.decode())
+                    itx_amount = Decimal(sorted_itxs[j][1].decode())
+                    itx = sorted_itxs[j][0]
+                    included_itxs.append(itx)
+                    included_itxs_amount += itx_amount
+                    if included_itxs_amount >= ctx_amount:
+                        asset_itxs.append(included_itxs)
+                        change_wallet_asset_amount[asset_types[i]] -= ctx_amount
+                        change_wallet_asset_itx[asset_types[i]] = itx
+                        if change_wallet_asset_amount[asset_types[i]] < 0:
+                            return None
+                        k = len(sorted_itxs)
+                        n = k if included_itxs_amount == ctx_amount else j
+                        sorted_itxs = sorted_itxs[n:] # advance to next sorted tx
+                        j = k
+
+            ctxs = []
+            ctxs_outputs = []
+            ptx = None
+            if len(asset_itxs) != len(to_addrs):
+                return None
+            for n in range(len(amounts)):
+                ctx = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.PARENT_TX_MSG.value, asset_itxs[n],
+                       to_addrs[n], asset_types[n], amounts[n], service_fee, utc_ts, pub_key)
+                ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value + tools.to_HMAC(ctx))
+                ctxs.append(ctx[:-1]) #exclude pub_key, it will be taken from the parentTx -> ptx
+            for n in range(len(assetsU)): # keep change
+                asset = list(assetsU)[n]
+                if asset in change_wallet_asset_amount: #skip exceptions
+                    change_amount = change_wallet_asset_amount[asset]
+                    if change_amount - Decimal(service_fee.decode()) > 0:
+                        ctx = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.PARENT_TX_MSG.value, [change_wallet_asset_itx[asset]],
+                               pub_addr, asset, tools.dec2b(change_amount), service_fee, utc_ts, pub_key)
+                        ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value + tools.to_HMAC(ctx))
+                        ctxs.append(ctx[:-1]) #exclude pub_key, it will be taken from the parentTx -> ptx
+                        amounts.append(tools.dec2b(change_amount))
+                        asset_types.append(asset)
+                        to_addrs.append(pub_addr)
+
+            ptx = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.PARENT_TX_MSG.value, ctxs,
+                   to_addrs, asset_types, amounts, tools.dec2b(Decimal(service_fee.decode()) * len(ctxs)), ctxs_outputs, utc_ts, pub_key)
+            return ptx
+        return None
+
+
+
+
+    def signMsg(self, msg, priv_key, pub_key):
+        try:
+            signed_msg = tools.signMsg(packb(msg), priv_key)
+            signed_msg_and_pubkey = (signed_msg, pub_key)
+            msg_and_pubkey_bytes = packb(signed_msg_and_pubkey)
+            #msg_and_pubkey_hash = tools.to_HMAC(msg_and_pubkey_bytes)
+            return msg_and_pubkey_bytes #, msg_and_pubkey_hash
+        except:
+            return None
+
+
+    def sendMsg(self, msg, hosts=[], port=7777): #TODO get available hosts
+         for h in host:
+             if tools.sendMsgZmqReq(packb(bin_signed_msg), h, port):
+                 return True
+         return False
+
+
+    def updateWallet(self, pub_addr):
         pass
 
 
 
+
+#TODO to continue
+#[inps for inps in [wallet_data[b"assets"][a][b"inputs"] for a in wallet_data[b"assets"]]]
+#utxai = [inps for inps in [wallet_data[b"assets"][a][b"inputs"] for a in wallet_data[b"assets"]]]
+#utxo = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][b"1"][b"inputs"]])
 
 class Exchange():
     pass
@@ -1500,18 +2174,17 @@ class Relay():
 class Agent():
     pass
 
-class Invoke():
-    pass
 
-class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop, Invoke):
+class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Transaction, Block, Contract, Wallet, Ico, Agent, Exchange, Shop):
     #import msgpack as mp
     def __init__(self):
-        self.version = Structure().version #TODO toolkit(tools(ver_num)
+        self.version = Structure().version #TODO toolkit(tools(version)
         self.config = Config()
         #self.Helper = Helper()
         #self.logger = Logger()
         self.ROOT_DIR = self.config.ROOT_DIR
         self.NODE_DB = self.config.NODE_DB
+        self.NODE_DB_TMP = self.config.NODE_DB_TMP
         self.NODE_SERVICE_DB = self.config.NODE_SERVICE_DB
         self.DB = Db(self.NODE_DB)
         self.SERVICE_DB = ServiceDb()
@@ -1521,9 +2194,26 @@ class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Tran
         self.Network = Network()
         self.Node = Node()
         self.Block = Block()
+        self.Ico = Ico()
+        self.WALLET = Wallet()
+        self.mkdir(self.config.WALLETS)
+
+
+    def utc_timestamp(self):
+        return arrow.utcnow().timestamp
+
+    def utc_timestamp_b(self):
+        return str(arrow.utcnow().timestamp).encode('utf-8')
 
     def utc(self):
-        return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
+        #return datetime.datetime.utcfromtimestamp(time.time()).strftime('%d-%m-%Y %H:%M:%S.%f')
+        #datetime.datetime.timestamp(datetime.datetime.now())
+        return str(arrow.get(self.utc_timestamp()))
+
+
+    def printStackTrace(self, ex):
+        print('ErrorLine: ', ex.__traceback__.tb_lineno)
+
 
     def b(self, str):
         try:
@@ -1556,6 +2246,7 @@ class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Tran
         except:
             return None
 
+
     def unpackb(self, packed_obj):
         try:
             return mp.unpackb(packed_obj)
@@ -1569,6 +2260,10 @@ class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Tran
             return True
         except:
             return False
+
+
+    def dec2b(self, dec):
+        return str(dec).encode()
 
 
     def strdecimal2bytes(self, str_decimal):
@@ -1625,6 +2320,11 @@ class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Tran
         print(s)
 
 
+class Task(Tools):
+    def __init__(self, name="Global"):
+        self.name = name
+        self.start_time = tools.utc()
+
 
 if __name__ == "__main__":
     #TODO sync time ->
@@ -1643,85 +2343,92 @@ if __name__ == "__main__":
     print('Tools version %s' % tools.version)
 
 
-    SK, VK = tools.getKeysFromSeed('Bob')
-    msg = b'msg'
-    msg2 = b'msg2'
-    signed_msg = tools.signMsg(msg, SK)
-    signed_msg2 = tools.signMsg(msg2, SK)
-    assert signed_msg._signature != signed_msg2._signature
-    print('msg 1,2 sigs', signed_msg._signature, signed_msg2._signature)
-    verified_sig = tools.verifyMsgSig(signed_msg, VK)
-    pub_addr = tools.getPubAddr(VK)
-    print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
-    test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
-    SK2, VK2 = tools.getKeysFromSeed('Alice')
-    pub_addr2 = tools.getPubAddr(VK2)
-    test.persistKeysInServiceDB(SK2._signing_key, SK2.verify_key._key, SK2._seed, pub_addr2, 'Alice')
-    query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
-    rec = tools.SERVICE_DB.queryServiceDB(query)
+    # SK, VK = tools.getKeysFromSeed('Bob')
+    # msg = b'msg'
+    # msg2 = b'msg2'
+    # signed_msg = tools.signMsg(msg, SK)
+    # signed_msg2 = tools.signMsg(msg2, SK)
+    # assert signed_msg._signature != signed_msg2._signature
+    # print('msg 1,2 sigs', signed_msg._signature, signed_msg2._signature)
+    # verified_sig = tools.verifyMsgSig(signed_msg, VK)
+    # pub_addr = tools.getPubAddr(VK)
+    # print("msg verified %s for publicKey: %s" % (verified_sig, pub_addr))  # VK == VerifyKey(VK._key)
+    # test.persistKeysInServiceDB(SK._signing_key, SK.verify_key._key, SK._seed, pub_addr, 'Bob')
+    # SK2, VK2 = tools.getKeysFromSeed('Alice')
+    # pub_addr2 = tools.getPubAddr(VK2)
+    # test.persistKeysInServiceDB(SK2._signing_key, SK2.verify_key._key, SK2._seed, pub_addr2, 'Alice')
+    # query = "select * from v1_test_accounts where pub_addr='%s'" % pub_addr
+    # rec = tools.SERVICE_DB.queryServiceDB(query)
     # genesis_tx = ('1', MSG_TYPE_SPEND_TX, ['%s,%s' % (genesis_sig['r'], genesis_sig['s'])], '1/1', ['%s,%s' % (genesis_pub_key['x'], genesis_pub_key['y'])], ['TX-GENESIS'], ['TX_GENESIS'], 'GENESIS', genesis_to_addr, '1', 10000000000.12345, merkle_date)
+
     ##tx = tools.Transaction.setTX('1', 'PTX', ['TX_GENESIS'], [tools.to_HMAC(tools.b('TX_GENESIS_%s' % pub_addr))], 'Genesis', [pub_addr], '1', [1000.1234], '2018-01-01 00:00:00.000000', '1/1', signed_msg._signature, VK._key)
-    unspent_input_genesis_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'.ljust(32)
-    unspent_output_genesis_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'.ljust(32)
+
+    # unspent_input_genesis_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'.ljust(32)
+    # unspent_output_genesis_tx = tools.MsgType.UNSPENT_TX + 'GENESIS'.ljust(32)
+
                                 #tools.to_HMAC(tools.b('%s_%s' %  (unspent_input_genesis_tx, pub_addr)))
     # tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx], [unspent_output_genesis_tx],
     #                              [pub_addr], '1', [10000000000000.1234567890], '98/99', signed_msg._signature, VK._key) #100000000000.123 #ToDo 4567890 248b 245b
     #TODO test limits of float and MAX_FIELD_SIZES
-    bf = tools.strdecimal2bytes('999999999.12345678')
-    sf = tools.bdecimal2str(bf)
-    tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
-                                 [pub_addr], '1', [b'999999999.12345678'],
-                                 VK._key) #10000000000000.12345678
+
+    # bf = tools.strdecimal2bytes('999999999.12345678')
+    # sf = tools.bdecimal2str(bf)
+    # tx = tools.Transaction.setTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
+    #                              [pub_addr], '1', [b'999999999.12345678'],
+    #                              VK._key) #10000000000000.12345678
+
     #tools.str2floatb('999999999.12345678')
 
-    signed_msg = tools.signMsg(packb(tx[:-1]), SK)
-    print('signed_msg before req', signed_msg)
-    verified, verified_msg = tools.verifyMsgSig(signed_msg, VK._key) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
-    assert verified
-    assert VerifyKey(rec[0][1]) == VK
-    bin_signed_msg = (signed_msg.message, VK._key)
-    tx_bytes = packb(bin_signed_msg)
-    res_valid = tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
-    print('genesis tx resp: ', res_valid)
-    assert res_valid
+    # signed_msg = tools.signMsg(packb(tx[:-1]), SK)
+    # print('G TX hash' , tools.to_HMAC(signed_msg.message))
+    # print('signed_G msg before req', signed_msg)
+    # verified, verified_msg = tools.verifyMsgSig(signed_msg, VK._key) #tools.verify(signed_msg, VerifyKey(bin_signed_msg[-1]))
+    # assert verified
+    # assert VerifyKey(rec[0][1]) == VK
+    # bin_signed_msg = (signed_msg.message, VK._key)
+    # tx_bytes = packb(bin_signed_msg)
+    # res_valid = tools.sendMsgZmqReq(tx_bytes, 'localhost', tools.Node.PORT_REP)
+    # print('genesis tx resp: ', res_valid)
+    # assert res_valid
+    #
+    # ###########
+    # multi_recv = []
+    # multi_amounts = []
+    # for i in range(1, 5):
+    #     receiver_seed = 'Alice%s' % i
+    #     priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
+    #     receiver_pub_addr = tools.getPubAddr(pub_k)
+    #     multi_recv.append(receiver_pub_addr)
+    #     multi_amounts.append(b'1')
+    # unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
+    #     unspent_input_genesis_tx], multi_recv, '1', multi_amounts,
+    # signed_multi_tx = tools.signMsg(packb(unsigned_tx_multi), SK)
+    # signed_multi_tx_vk = (signed_multi_tx.message, VK._key)
+    # # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
+    # verified_multi_tx_sig = tools.verifyMsgSig(signed_multi_tx, VK) #Bob
+    # assert verified_multi_tx_sig[0]
+    # print('tx_multi VK: ', VK._key)
+    # print('tx_multi signed_tx_multi.message: ', signed_multi_tx.message)
+    # ##tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
+    # signed_multi_tx_vk_bytes = packb(signed_multi_tx_vk)
+    # signed_multi_tx_vk_bytes_hash = tools.to_HMAC(signed_multi_tx_vk_bytes)
+    # res_valid = tools.sendMsgZmqReq(signed_multi_tx_vk_bytes, 'localhost', tools.Node.PORT_REP)
+    # print('multi tx resp: ', res_valid)
+    # assert res_valid
+    # ##############################
+    # bsk, bvk = tools.getKeysFromSeed('Miner0')
+    # tx_arr_bin = [bin_signed_msg, signed_multi_tx_vk]
+    # tx_hash_arr = [signed_multi_tx_vk_bytes_hash]
+    # block_msg = '1', tools.MsgType.BLOCK_MSG, tx_hash_arr
+    # block_signed_msg = tools.signMsg(packb(block_msg), bsk)
+    # block_signed_msg_vk = (block_signed_msg.message, bvk._key) #TODO vk is last 32bit
+    # vres, dmsg = tools.verifyMsgSig(block_signed_msg, bvk) #bvk.verify(block_signed_msg)
+    # assert vres #TODO persistBlock(priority=100) serviceDB
+    # print('Block Sig is Valid')
 
-    ###########
-    multi_recv = []
-    multi_amount_list = []
-    for i in range(1, 5):
-        receiver_seed = 'Alice%s' % i
-        priv_k, pub_k = tools.getKeysFromSeed(receiver_seed)
-        receiver_pub_addr = tools.getPubAddr(pub_k)
-        multi_recv.append(receiver_pub_addr)
-        multi_amount_list.append(b'1')
-    unsigned_tx_multi = '1', tools.MsgType.PARENT_TX_MSG, [
-        unspent_input_genesis_tx], multi_recv, '1', multi_amount_list,
-    signed_multi_tx = tools.signMsg(packb(unsigned_tx_multi), SK)
-    signed_multi_tx_vk = (signed_multi_tx.message, VK._key)
-    # tx_multi = tools.Transaction.setTX(unsigned_tx_multi, signed_tx_multi._signature, VK._key)  # 10000000000000.12345678
-    verified_multi_tx_sig = tools.verifyMsgSig(signed_multi_tx, VK) #Bob
-    assert verified_multi_tx_sig[0]
-    print('tx_multi VK: ', VK._key)
-    print('tx_multi signed_tx_multi.message: ', signed_multi_tx.message)
-    ##tx_hash_multi = tools.Crypto.to_HMAC(packb(bin_signed_multi))
-    signed_multi_tx_vk_bytes = packb(signed_multi_tx_vk)
-    signed_multi_tx_vk_bytes_hash = tools.to_HMAC(signed_multi_tx_vk_bytes)
-    res_valid = tools.sendMsgZmqReq(signed_multi_tx_vk_bytes, 'localhost', tools.Node.PORT_REP)
-    print('multi tx resp: ', res_valid)
-    assert res_valid
-    ##############################
-    bsk, bvk = tools.getKeysFromSeed('Miner1')
-    tx_arr_bin = [bin_signed_msg, signed_multi_tx_vk]
-    tx_hash_arr = [signed_multi_tx_vk_bytes_hash]
-    block_msg = '1', tools.MsgType.BLOCK_MSG, '1', tx_hash_arr
-    block_signed_msg = tools.signMsg(packb(block_msg), bsk)
-    block_signed_msg_vk = (block_signed_msg.message, bvk._key) #TODO vk is last 32bit
-    vres, dmsg = tools.verifyMsgSig(block_signed_msg, bvk) #bvk.verify(block_signed_msg)
-    assert vres #TODO persistBlock(priority=100) serviceDB
-    print('Block Sig is Valid')
+    #res_valid = tools.Transaction.sendMsg(packb(block_signed_msg_vk), "localhost", tools.Node.PORT_REP)
+    #print('block tx resp: ', res_valid)
 
-    res_valid = tools.Transaction.sendMsg(packb(block_signed_msg_vk), "localhost", tools.Node.PORT_REP)
-    print('block tx resp: ', res_valid)
 
 #    if res_valid and dmsg is not None:
 #        for msg in block_msg[2]:#todo txs_fields_index
@@ -1731,7 +2438,36 @@ if __name__ == "__main__":
            # msg_pk = msg[0], msg[1]
            # print('Msg Validated', tools.validateMsg(packb(msg_pk)))
     # verified = tools.verifyBlock(block_msg)
+
+
+    tools.insertGenesis() #(packb(block_signed_msg_vk))
+    ##########################Done
+
+   #TODO read from protected pwd binary encoded + verifyExistingBeforeUPdateWallet
+    gSK, gVK = tools.getKeysFromSeed('Miner0')
+    gSK2, gVK2 = tools.getKeysFromSeed('Miner1')
+    g_wallet = tools.to_HMAC(gVK2._key)
+    #print('\n*****Genesis wallet Sender=Reciever*****\n', unpackb(tools.getDbRec(g_wallet)))
+    wallet_data = tools.WALLET.getDbWallet(g_wallet)
+    print('\n*****Genesis DB wallet Reciever*****\n', wallet_data)
+    wallet_data_bin = tools.getDbRec(g_wallet)
+    print('\n*****Genesis Local wallet Reciever*****\n', tools.WALLET.saveLocalWallet(g_wallet, wallet_data_bin))
+    ua = tools.WALLET.getLocalWalletUnspentAssets(g_wallet)
+    print("Wallet", g_wallet, " Unspent amounts\n", ua)
+
+    to_addrs = [tools.to_HMAC("%s" % i) for i in range(3)]
+    ptx = tools.WALLET.setTx(gVK2._key, [b'1',  b'1', b'1'], [b'1', b'1', b'1'], to_addrs)
+    smsg = tools.WALLET.signMsg(ptx, gSK2, gVK2._key)
+    umsg = unpackb(smsg)
+    vmsg = umsg[0]
+    vk = VerifyKey(umsg[1])
+    sig, msg = tools.verifyMsgSig(vmsg, vk._key)
+    tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
+    tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key) #TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
+    #tools.insertDbTx(umsg) #dummy test TODO to continue/fix
     exit(0)
+
+
     ##########################################
 
 
@@ -1766,7 +2502,7 @@ if __name__ == "__main__":
            "localhost", tools.Node.PORT_REP)
     bin_signed_msg2 = tools.Transaction.sendTX('1', tools.MsgType.PARENT_TX_MSG, [unspent_input_genesis_tx],
                       [pub_addr, pub_addr], '1', [b'1.12345678', b'2.123'], '1/1', "Bob",
-                      "localhost", tools.Node.PORT_REP)
+                      "localhost", tools.Node.PORT_REP) #todo send to a valid miner
     tx_hash2 = tools.Crypto.to_HMAC(packb(bin_signed_msg2))
     print('tx_hash2', tx_hash2)
     bin_signed_msg3 = tools.Transaction.submitTX(tx2, "Bob", "localhost", tools.Node.PORT_REP)
@@ -1787,20 +2523,20 @@ if __name__ == "__main__":
     #assert type(stx) == type(stx2)
     assert stx == stx2
 
-    #assert btx == stx[:-6] ##TODO repack of amount_list field ->repack parts with BigEndian
-    list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELDS
-                         if tools.Transaction.TX_MSG_FIELDS[k] is list]
-    list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_FIELDS_INDEX.items() if
-                          v in list_fields_names and v in tools.Transaction.TX_MSG_FIELDS_INDEX.values()]
-    amount_list_field_index = list(tools.Transaction.TX_MSG_FIELDS_INDEX.values()).index('amount_list')
-    list_amount_list = (stx[amount_list_field_index][1:-1].split(","))
-    decimal_list_amount_list = [Decimal(x) for x in list_amount_list]
-    total_outputs_amount = format(sum(decimal_list_amount_list), '.8f')
+    #assert btx == stx[:-6] ##TODO repack of Amounts field ->repack parts with BigEndian
+    list_fields_names = [k for k in tools.Transaction.TX_MSG_FIELD_TYPE
+                         if tools.Transaction.TX_MSG_FIELD_TYPE[k] is list]
+    list_field_indexes = [k for (k, v) in tools.Transaction.TX_MSG_INDEX_FIELD.items() if
+                          v in list_fields_names and v in tools.Transaction.TX_MSG_INDEX_FIELD.values()]
+    amounts_field_index = list(tools.Transaction.TX_MSG_INDEX_FIELD.values()).index('amounts')
+    list_amounts = (stx[amounts_field_index][1:-1].split(","))
+    decimal_list_amounts = [Decimal(x) for x in list_amounts]
+    total_outputs_amount = format(sum(decimal_list_amounts), '.8f')
     list_stx = list(stx)
     for i in list_field_indexes:
         list_stx[i] = list_stx[i][1:-1].split(",")
     #assert tuple(list_stx[:-6]) == btx #still not in DB
-    tx_fields_len = len(tools.Transaction.TX_MSG_FIELDS_INDEX.keys())
+    tx_fields_len = len(tools.Transaction.TX_MSG_INDEX_FIELD.keys())
 
     sdb_tx = tuple(list_stx[:tx_fields_len])
     db_tx = btx
@@ -1861,7 +2597,7 @@ if __name__ == "__main__":
 #         print(tx_hash, 'Exist in LevelDb', tools.isDBvalue(tools.b(tx_hash))) #, signed_ptx))
 #         print(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0]))
 #
-# #        tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0])[:-3])
+#    tools.decodeMsg(unpackb(unpackb(tools.getDbKey(tx_hash, tools.DB.DB_PATH))[0])[:-3])
 #
 #     print("DbPtxsHashes: ", dbTxArr)
 #     print(tools.isDBvalue(tools.b(tx_hash2)))
@@ -1871,13 +2607,14 @@ if __name__ == "__main__":
 
 ##############################################################################
 #TOdo
+# bmsg -> validate(binMsgHash) -> sdb -> taskVerify -> blockWriteDb -> delSdb
 # db2wlt, db2tx, db2blk,
 # pQWorker(type) -> (['r2db', 'w2db',  'ex'
-# # [Verify', 'txValidate,
+# # [Verify', 'txValidate, ...
 # msg -val(wallet)-savemSdb
 # readSdb - verify - publish2master(new) - master-republish-new
 # masterPublishBlock - nodeVerify(true|false) - nodeVote(true | false)
 
 
-
+#getTxArrFromPtx -> wallets
 ##############################################################################
