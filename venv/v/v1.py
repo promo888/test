@@ -1198,8 +1198,6 @@ class ServiceDb():
 
 
 
-
-
     def getWorker(self, worker_func):
         thread = Thread(target=worker_func)
         thread.daemon = True
