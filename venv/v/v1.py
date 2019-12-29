@@ -20,7 +20,7 @@ import time, socket, zmq, asyncio
 from time import sleep
 import threading
 from multiprocessing import Process #ToDo killPorts+watchdog
-from queue import Queue
+from queue import Queue, PriorityQueue #, Condition
 import enum, math
 
 class Test():
@@ -73,6 +73,10 @@ class Test():
             # err_msg = 'Exception on Select (%s) from SqlLite NODE_SERVICE_DB: %s, %s' % (sql, Logger.exc_info(), ex)
             # logger.logp(err_msg, logging.ERROR)
             return None
+
+
+
+
 
 #TODO signed_msg_hash=signed_msg onMsgRetrieve
     # def persistPendingMsg(self, signed_msg_hash, signed_msg, pub_key, msg_priority=None):
@@ -863,13 +867,19 @@ class Transaction():
 
 
     def getServiceDbTx(self, msg_hash, unique=True):
-        records = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % msg_hash)
-        print('%s Records Found' % len(records))
-        if len(records) == 0:
-            return None
-        else:
-            res = records[0] if unique else records
-            return res
+        try:
+            records = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg where signed_msg_hash='%s'" % msg_hash)
+            print('%s Records Found' % len(records))
+            if len(records) == 0:
+                return None
+            else:
+                res = records[0] if unique else records
+                return res
+        except: pass
+        # except Exception as ex:
+        #     print("SDB Error: %s" % ex)
+        #     return None
+
 
 
     def getTxAmount(self, stx):
@@ -974,6 +984,8 @@ class Block():
         self.BLOCK_MSG_FIELD_INDEX = {'version': 0, 'msg_type': 1, 'block_num': 2, 'prev_block_hash': 3,
                                        'input_msgs': 4, 'miners_votes': 5, 'block_utc_time': 6,
                                        'miner_pub_key': 7}  # minerPubK is ALWAYS last field in msg or msgList
+        self.msg_list = set()
+        self.inputs_list = set()
 
         bk = [v for v in self.BLOCK_MSG_INDEX_FIELD if v not in self.BLOCK_MSG_FIELD_TYPE]
         assert len(bk) > 0#todo disable
@@ -983,7 +995,7 @@ class Block():
             f_i = [v for v in self.BLOCK_MSG_INDEX_FIELD]
             b_k = block.keys()
             f_k = [v for v in b_k if v not in f_i]
-            assert len(f_k) == 0#todo disable
+            assert len(f_k) == 0 #todo disable
             if len(f_k) > 0:
                 return None
 
@@ -1000,6 +1012,40 @@ class Block():
         if not fields_index is None: #len(fields_index) == 1:
             return block_obj[fields_index] #
         else:
+            return None
+
+
+    def saveLastBlockState(self, db_last_saved_block_hash):
+        with open("last_saved_block", "w") as last_block_id:
+            last_block_id.write(db_last_saved_block_hash)
+
+
+    def getLastBlockId(self):
+        try:
+            with open("last_saved_block", "r") as last_block_id:
+                block_id = last_block_id.read()
+                if len(block_id) == 33:
+                    return block_id
+                return None
+        except:
+            return None
+
+
+    def saveBlockMissingMsgs(self, msg_hash):
+        if not os.path.exists("missing_msgs"):
+            with open("missing_msgs", "w") as complete_missing_first:
+                complete_missing_first.write(msg_hash)
+        else:
+            with open("missing_msgs", "a") as complete_missing_first:
+                complete_missing_first.write(msg_hash)
+
+
+    def insertBlock(self, block_hash, block_msg_bin):
+        try:
+            block_id = tools.MsgType.Type.BLOCK_MSG.value + block_hash
+            tools.insertDbKey(block_id, block_msg_bin)  # saveBlockInDb
+            self.saveLastBlockState(block_id)
+        except:
             return None
 
 
@@ -1081,7 +1127,8 @@ class Block():
         #tools.Transaction.validateTX #TODO
 
         tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value + g_tx_hash, g_signed_msg_and_key_bytes)  # PTX SDB
-        tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
+        #tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
+        tools.Block.insertBlock(genesis_block_hash, block_msg_bin)
         tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value + g_tx_hash, tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash) #SPENT DOUBLE check
         tools.insertTxsToWallets(genesis_tx, tools.MsgType.Type.PARENT_TX_MSG.value + g_tx_hash,
                                  tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash) #wallets update TODO state
@@ -1520,7 +1567,7 @@ class Node():
         self.PORT_PUB_SERVER = 5555   # Optional fanout
         self.PORT_SUB_CLIENT = 6666   # Optional subscribe
         self.WORKERS = 3
-        self.Q = Queue()
+        self.tasksQ = PriorityQueue() #Queue()
         self.init_Qexec()
         self.init_servers()
 
@@ -1570,28 +1617,29 @@ class Node():
 
     def putQ(self, func_with_args):
         try:
-            if not self.Q.full():
-                self.Q.put_nowait(func_with_args)
-                self.Q.task_done()
+            if not self.tasksQ.full():
+                self.tasksQ.put_nowait(func_with_args)
+                #self.Q.task_done()
             else:
                 print("The Q is FULL, persist or fallback")
         except Exception as ex:
             print("ExceptionQ: %s \n%s\n" % (ex, ex.__traceback__.tb_lineno))
+            # raise Exception(ex)
 
 
 
     def exeQ(self):
         while True:
             try:
-                if not self.Q.empty():
-                    func = self.Q.get_nowait()
+                if not self.tasksQ.empty():
+                    func = self.tasksQ.get_nowait()
                     print("ExeQ")
                     func()
-                    self.Q.task_done()
+                    self.tasksQ.task_done()
             except Exception as ex:
                 print("ExceptionQ: %s \n%s\n" % (ex, ex.__traceback__.tb_lineno) )
-                self.Q.put_nowait(func)
-                self.Q.task_done()
+                #self.Q.put_nowait(func)
+                #self.Q.task_done()
 
 
     def init_server(self, type):
@@ -1657,6 +1705,7 @@ class Node():
                     # TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
                     self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key))
 
+
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
                     #     "insert into v1_pending_tx (version, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
                     #     values)
@@ -1678,7 +1727,7 @@ class Node():
                     msg_hash = tools.Crypto.to_HMAC(rep_msg) #tools.Crypto.to_HMAC(unpackb(rep_msg)[0]) #tools.Crypto.to_HMAC(packb(umsg[0])) #tools.Crypto.to_HMAC(rep_msg)#tools.Crypto.to_HMAC(packb(umsg))
                     print('msg hash: ', msg_hash)
                     if tools.isDBvalue(msg_hash, tools.NODE_DB):
-                        rep_socket.send(b'Error: Msg Exist')
+                        rep_socket.send(b'Error: Msg Exist\n')
                     else: #TODO after persist + in Verify
                         #TODO ? tools.verifyMsgSig(SignedMessage(umsg[0]), VerifyKey(umsg[2]))
                         #print('signed_msg after  req', umsg[0])
@@ -1688,10 +1737,11 @@ class Node():
                         ##    rep_socket.send(b'OK: SigVerified')
                         ##else:
                         ##    rep_socket.send(b'Error: Invalid Sig')
-                        rep_socket.send(b'OK: Msg is Valid')
+                        rep_socket.send(b'OK: Msg is Valid\n')
                 else:
-                    error = "Msg Exist" if msg_in_db is not None else "Invalid Msg"
-                    rep_socket.send(b'Error: ' + error.encode())
+                    error = "Msg Exist" if (msg_in_db is not None or msg_in_sdb) else "Invalid Msg"
+                    error = "Sender Not Exist" if wallet_exist is None else error
+                    rep_socket.send(b'Error: %s\n' % error.encode())
 
         if type is 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1701,7 +1751,7 @@ class Node():
                 udp_msg = udps_socket.recvfrom(1024)
                 data = udp_msg[0]
                 addr = udp_msg[1]
-                self.Q.put_nowait(udp_msg[0])
+                self.tasksQ.put_nowait(udp_msg[0])
 
                 if not data:
                     break
@@ -1717,7 +1767,7 @@ class Node():
             print('Starting PUB server tcp://localhost:%s' % self.PORT_PUB, flush=True)
             while True:
                 try:
-                    if not self.Q.empty():
+                    if not self.tasksQ.empty():
                         pub_msg = Q.get_nowait()
                         pub_socket.send(pub_msg)
                 except Exception as ex:
@@ -1776,6 +1826,13 @@ class Node():
             workers.append(t)
         sleep(1)
 
+
+    def testTx(self, senderSeed, assets, amounts, to_addrs):
+        sk, vk = tools.getKeysFromSeed(senderSeed)
+        to = [tools.to_HMAC(s) for s in to_addrs]
+        ptx = tools.WALLET.createTx(vk._key, assets, amounts, to)
+        smsg = tools.WALLET.signMsg(ptx, sk, vk._key)
+        tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
 
 class Wallet():
@@ -2093,7 +2150,7 @@ class Wallet():
             return None
 
 
-    def setTx(self, pub_key, asset_types=[], amounts=[], to_addrs=[], service_fee=b"0.001"): #todo set fee from config+validate min 4 miners
+    def createTx(self, pub_key, asset_types=[], amounts=[], to_addrs=[], service_fee=b"0.001"): #todo set fee from config+validate min 4 miners
         pub_addr = tools.to_HMAC(pub_key)
         ua  = self.getLocalWalletUnspentAssets(pub_addr)
         if ua is None:
@@ -2480,9 +2537,9 @@ if __name__ == "__main__":
            # print('Msg Validated', tools.validateMsg(packb(msg_pk)))
     # verified = tools.verifyBlock(block_msg)
 
-   #testQ
-    tools.Node.putQ(lambda: int("a"))
-   #
+   # #testQ
+   #  tools.Node.putQ(lambda: int("a"))
+   # #
 
     tools.insertGenesis() #(packb(block_signed_msg_vk))
     ##########################Done
@@ -2497,20 +2554,37 @@ if __name__ == "__main__":
     wallet_data = tools.WALLET.getDbWallet(r_wallet)
     print('\n*****Genesis DB wallet Reciever*****\n', wallet_data)
     wallet_data_bin = tools.getDbRec(r_wallet)
-    print('\n*****Genesis Local wallet Reciever*****\n', tools.WALLET.saveLocalWallet(r_wallet, wallet_data_bin))
+    print('\n*****Genesis Local wallet Reciever*****', tools.WALLET.saveLocalWallet(r_wallet, wallet_data_bin))
     ua = tools.WALLET.getLocalWalletUnspentAssets(r_wallet)
-    print("Wallet", r_wallet, " Unspent amounts\n", ua)
+    print("\nWallet", r_wallet, " Unspent amounts", ua)
 
-    to_addrs = [tools.to_HMAC("%s" % i) for i in range(3)]
-    ptx = tools.WALLET.setTx(gVK2._key, [b'1',  b'1', b'1'], [b'1', b'1', b'1'], to_addrs)
+    to_addrs = [tools.to_HMAC("test%s" % i) for i in range(1, 4)]
+    ptx = tools.WALLET.createTx(gVK2._key, [b'1', b'1', b'1'], [b'1', b'1', b'1'], to_addrs)
     smsg = tools.WALLET.signMsg(ptx, gSK2, gVK2._key)
     umsg = unpackb(smsg)
     vmsg = umsg[0]
     vk = VerifyKey(umsg[1])
     sig, msg = tools.verifyMsgSig(vmsg, vk._key)
     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
-    ##tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key) #TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
+
+    #tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key) #TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
     #tools.insertDbTx(umsg) #dummy test TODO to continue/fix
+    ptx1 = tools.testTx("Miner1", [b"1"], [b"0.1"], ["test1"])
+    ptx2 = tools.testTx("test1", [b"1"], [b"0.1"], ["test2"])
+    tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
+
+    block_msg = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.BLOCK_MSG.value,
+                 '1', tools.Block.getLastBlockId().encode(),
+                [ptx1, ptx2], [b"ToDo_VerifyMinerSigs_turns_and_amounts"], tools.utc_timestamp_b())
+
+    # testQ
+    tools.Node.putQ(lambda: int("a"))
+    #
+    # for i in range(3):
+    #     #tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key)
+    #     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
+
+    #print("LastBlockHash: ", tools.Block.getLastBlockId())
     exit(0)
 
 
