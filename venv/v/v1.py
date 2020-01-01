@@ -1,10 +1,12 @@
 import os, sys, subprocess, psutil, pkgutil
 import msgpack as mp
+from msgpack import packb, unpackb
+import json
 import sqlite3, plyvel #leveldb
 import datetime, time, arrow, configparser
 import logging
 from logging.handlers import RotatingFileHandler
-from msgpack import packb, unpackb
+
 from copy import deepcopy
 
 import configparser
@@ -986,6 +988,9 @@ class Block():
                                        'miner_pub_key': 7}  # minerPubK is ALWAYS last field in msg or msgList
         self.msg_list = set()
         self.inputs_list = set()
+        self.last_block_id = None
+        self.last_block_number = self.getLastBlockNumber()
+
 
         bk = [v for v in self.BLOCK_MSG_INDEX_FIELD if v not in self.BLOCK_MSG_FIELD_TYPE]
         assert len(bk) > 0#todo disable
@@ -1015,17 +1020,28 @@ class Block():
             return None
 
 
+    def getLastBlockNumber(self):
+        try:
+            with open("last_saved_block", "r") as last_block:
+                blk_obj = json.loads(last_block.read())
+                self.last_block_number =  blk_obj[blk_obj.keys()[0]]
+        except:
+            self.last_block_number = 0
+        return self.last_block_number
+
+
     def saveLastBlockState(self, db_last_saved_block_hash):
         with open("last_saved_block", "w") as last_block_id:
-            last_block_id.write(db_last_saved_block_hash)
+            #last_block_id.write(db_last_saved_block_hash)
+             last_block_id.write(json.dumps({db_last_saved_block_hash: self.getLastBlockNumber()+1}))
 
 
     def getLastBlockId(self):
         try:
             with open("last_saved_block", "r") as last_block_id:
-                block_id = last_block_id.read()
-                if len(block_id) == 33:
-                    return block_id
+                block_id = json.loads(last_block_id.read())
+                if len(list(block_id.keys())[0]) == 33:
+                    return list(block_id.keys())[0]#block_id
                 return None
         except:
             return None
@@ -1403,7 +1419,7 @@ class ServiceDb():
                                  PRIMARY KEY(signed_msg_hash)
                                 );
                              '''
-        msg_priority = 0 if msg_priority is None else msg_priority
+        msg_priority = msg_priority if msg_priority > 0 else 0
         sql = "INSERT INTO v1_pending_msg (signed_msg_hash, signed_msg, pub_key, msg_priority) values (?,?,?,?)"
         print("INSERT INTO v1_pending_msg from %s with %s priority" % (signed_msg_hash, msg_priority))
         con = tools.SERVICE_DB.getServiceDB()
@@ -1627,7 +1643,6 @@ class Node():
             # raise Exception(ex)
 
 
-
     def exeQ(self):
         while True:
             try:
@@ -1659,7 +1674,7 @@ class Node():
 
                 error = ""
                 #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
-                validated_msg = tools.validateMsg(rep_msg)
+               ## validated_msg = tools.validateMsg(rep_msg)
                 #assert validated_msg
                #  if not validated_msg or validated_msg is None:
                #      print('Error: Msg Validation failed')
@@ -1673,15 +1688,23 @@ class Node():
                #      print('OK: Msg is Valid')
                #      rep_socket.send(b'OK: Msg is Valid')
 
+                umsg = unpackb(rep_msg)
+                msg_type = umsg[0]
+                msg_content = umsg[1][0]
+                msg_key = umsg[1][1]
+                msg_priority = 1 if msg_type == tools.MsgType.Type.BLOCK_MSG.value.encode() else 0
+                pmsg = packb(unpackb(rep_msg)[1:][0]) #repack msg - get rid of msgType
+                validated_msg = tools.validateMsg(pmsg)
                 try:
-                    pub_key = rep_msg[-32:]
+                    pub_key = msg_key #rep_msg[-32:]
                     pub_addr = tools.Crypto.to_HMAC(pub_key)
                     wallet_exist = tools.DB.getDbRec(pub_addr, tools.DB.DB_PATH)
                 except:
                     rep_socket.send(b'Error: Invalid Sender')
                     continue
 
-                msg_hash = tools.Crypto.to_HMAC(rep_msg)
+
+                msg_hash = tools.Crypto.to_HMAC(pmsg) #(rep_msg)
                 msg_in_db = tools.DB.getDbRec(msg_hash, tools.DB.DB_PATH)
                 msg_in_sdb = tools.getServiceDbTx(msg_hash)
                 if not wallet_exist is None and not msg_in_sdb and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
@@ -1703,7 +1726,7 @@ class Node():
                     #tmp end
                     #tools.persistPendingMsg(msg_hash, rep_msg, pub_key)
                     # TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
-                    self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key))
+                    self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_priority=msg_priority))
 
 
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
@@ -1831,9 +1854,11 @@ class Node():
         sk, vk = tools.getKeysFromSeed(senderSeed)
         to = [tools.to_HMAC(s) for s in to_addrs]
         ptx = tools.WALLET.createTx(vk._key, assets, amounts, to)
-        smsg = tools.WALLET.signMsg(ptx, sk, vk._key)
+        smsg = tools.WALLET.signMsg(ptx, sk, vk._key) #signMsg prepends msgType
+        if smsg is None:
+            return None
         tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
-
+        return smsg
 
 class Wallet():
     def __init__(self, version='1', pub_addr=None, sig_type='1/1', multi_sig_pubkeys=[], assets=[], msgs=[], contracts=[]):
@@ -2237,7 +2262,9 @@ class Wallet():
             signed_msg_and_pubkey = (signed_msg, pub_key)
             msg_and_pubkey_bytes = packb(signed_msg_and_pubkey)
             #msg_and_pubkey_hash = tools.to_HMAC(msg_and_pubkey_bytes)
-            return msg_and_pubkey_bytes #, msg_and_pubkey_hash
+            ##return msg_and_pubkey_bytes #, msg_and_pubkey_hash
+            msgtype_msg_pubkey_bytes = (msg[1], signed_msg_and_pubkey)
+            return packb(msgtype_msg_pubkey_bytes)
         except:
             return None
 
@@ -2562,20 +2589,23 @@ if __name__ == "__main__":
     ptx = tools.WALLET.createTx(gVK2._key, [b'1', b'1', b'1'], [b'1', b'1', b'1'], to_addrs)
     smsg = tools.WALLET.signMsg(ptx, gSK2, gVK2._key)
     umsg = unpackb(smsg)
-    vmsg = umsg[0]
-    vk = VerifyKey(umsg[1])
+    vmsg = umsg[1][0]
+    vk = VerifyKey(umsg[1][1])
     sig, msg = tools.verifyMsgSig(vmsg, vk._key)
     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
     #tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key) #TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
     #tools.insertDbTx(umsg) #dummy test TODO to continue/fix
-    ptx1 = tools.testTx("Miner1", [b"1"], [b"0.1"], ["test1"])
-    ptx2 = tools.testTx("test1", [b"1"], [b"0.1"], ["test2"])
     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
+    ptx1 = tools.testTx("Miner1", [b"1"], [b"0.1"], ["test1"])
+    ptx2 = tools.testTx("test1", [b"1"], [b"0.1"], ["test2"])
+    msg_list = [ptx1, ptx2] #TODO check for None msg
     block_msg = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.BLOCK_MSG.value,
                  '1', tools.Block.getLastBlockId().encode(),
-                [ptx1, ptx2], [b"ToDo_VerifyMinerSigs_turns_and_amounts"], tools.utc_timestamp_b())
+                msg_list, [b"ToDo_VerifyMinerSigs_turns_and_amounts"], tools.utc_timestamp_b())
+    bmsg = tools.WALLET.signMsg(block_msg, gSK, gVK._key)
+    tools.sendMsgZmqReq(bmsg, 'localhost', tools.Node.PORT_REP)
 
     # testQ
     tools.Node.putQ(lambda: int("a"))
