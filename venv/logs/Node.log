@@ -1,0 +1,4 @@
+01-01-2020 16:06:42.364335 Exception ServiceDB: 
+INSERT INTO v1_pending_msg
+ UNIQUE constraint failed: v1_pending_msg.signed_msg_hash
+1428
