@@ -1653,8 +1653,6 @@ class Node():
                     self.tasksQ.task_done()
             except Exception as ex:
                 print("ExceptionQ: %s \n%s\n" % (ex, ex.__traceback__.tb_lineno) )
-                #self.Q.put_nowait(func)
-                #self.Q.task_done()
 
 
     def init_server(self, type):
