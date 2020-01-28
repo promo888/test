@@ -21,6 +21,7 @@ from decimal import Decimal
 import time, socket, zmq, asyncio
 from time import sleep
 import threading
+from threading import Timer, TIMEOUT_MAX, Condition
 from multiprocessing import Process #ToDo killPorts+watchdog
 from queue import Queue, PriorityQueue #, Condition
 import enum, math
@@ -217,31 +218,28 @@ class MsgTypes(enum.Enum):
     RELAY_TX = b'R'  # b'\xd2'
     MSG_MSG = b'M'  # b'\xd3'
 
-#tools.MsgType.__class__.__dict__.values()
-class Types(): #b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute__('UNSPENT_TX')
 
-    #Transactions/Messages/Contracts/Validattions
+class MsgPtx():
+    def __init__(self, bin_msg):
+        try:
+            self.bin_msg = bin_msg
+            self.msg_hash = tools.to_HMAC(self.bin_msg)
+            self.unp_msg = unpackb(self.bin_msg)
+            self.pub_key =  self.unp_msg[-1]
+            self.pub_addr = tools.to_HMAC(self.pub_key)
+            self.inputs_field_index = tools.Transaction.TX_MSG_FIELD_INDEX.get("input_txs")
+            self.inputs = [e[self.inputs_field_index] for e in umsg[self.inputs_field_index]]
+            self.to_addrs = [] #TODO to continue
+            self.assets = []
+            self.amounts = []
+            return self
+        except:
+            return None
+#tools.MsgType.__class__.__dict__.values()
+#b'\xa7' in Types.__dict__.values() tools.MsgType.__getattribute__('UNSPENT_TX')
+
+class Types():
     Type = MsgTypes
-    # UNSPENT_TX = MsgTypes.UNSPENT_TX
-    # SPENT_TX = MsgTypes.UNSPENT_TX
-    # PARENT_TX_MSG = MsgTypes.UNSPENT_TX
-    # PARENT_TX_MSG_MAX_SIZE = MsgTypes.UNSPENT_TX
-    # SPEND_MULTI_SIG_TX = MsgTypes.UNSPENT_TX
-    # MINER_FEE_TX = MsgTypes.UNSPENT_TX
-    # MINER_ISSUE_TX = MsgTypes.UNSPENT_TX
-    # BLOCK_MSG = MsgTypes.UNSPENT_TX
-    # BLOCK_MSG_MAX_SIZE = 4096
-    # VOTE_MSG = 'V' #b'\xb1'
-    # CONTRACT_TX = 'C' #b'\xc0'
-    # CONTRACT_CONFIRM_TX = 'T' #b'\xc1'
-    # CONTRACT_MSG = 'D' #b'\xc2'
-    # REGISTER_TX = b'\xe1'
-    # EXCHANGE_TX = b'E' #b'\x88'
-    # ICO_TX = 'I' #b'\xa6'
-    # AGENT_TX = 'A' #b'\xa7'
-    # INVOKE_TX = b'\xd1'
-    # RELAY_TX = 'R' #b'\xd2'
-    # MSG_MSG = 'M'  #b'\xd3'
 
 
     #def isValidType(self, typeValue):
@@ -338,6 +336,8 @@ class Config():
         self.LOGS = '%s/../logs' % self.ROOT_DIR
         self.WALLETS = '%s/../WALLETS' % self.ROOT_DIR
         self.MAIN_COIN = '1' #todo 2change 4meaningful name FxCash, CryptoCash, Pcoin,
+        self.TASK_VERIFY_SDB_INTERVAL_SECS = 10
+        self.TASK_DELETE_SDB_INTERVAL_SECS = 10
 
 class Logger():
 
@@ -487,7 +487,7 @@ class Crypto():
             tools.logger.logp(err_msg, logging.ERROR)
             return None
 
-    def verifyMsgSig(self, signed_msg, verifying_key):
+    def verifyMsgSig(self, signed_msg, verifying_key, print_verified=True):
         '''Return True if msg verified, otherwise false'''
         try:
             SM = signed_msg
@@ -500,7 +500,8 @@ class Crypto():
             #print('VK', VK)
             #print('Unpacked MsgType: ', type(unpackb(signed_msg)))
             verified_msg = VK.verify(SM)
-            print('MsgSigVerified: ', type(unpackb(verified_msg)), unpackb(verified_msg))
+            if print_verified:
+                print('MsgSigVerified: ', type(unpackb(verified_msg)), unpackb(verified_msg))
             #TODO check if msg[0] is list|tuple unsigned tx list|signed_tx_list utx|stx
             #sigVerified, signedMsg =tools.verifyMsgSig( block_signed_msg_vk[0], bvk)
             #unsigned_ptx = unpackb(signedMsg)
@@ -510,7 +511,7 @@ class Crypto():
             #    res = validateMsg(tx)
             return True, verified_msg
         except Exception as ex:
-            print('ErrorLine: ', ex.__traceback__.tb_lineno)
+            print('ErrorLine: ', ex.__traceback__.tb_lineno) #TODO log?
             return False, None
 
     def getPubAddr(self, VK):
@@ -623,7 +624,7 @@ class Transaction():
     #todo to change verfySig, lenght, childs not exist in DB
     def verifyMsg(self, decoded_msg):
         try:
-            if decoded_msg[1] == tools.MsgType.PARENT_TX_MSG:
+            if decoded_msg[1] == tools.MsgType.Type.PARENT_TX_MSG.value: #tools.MsgType.PARENT_TX_MSG:
                 if tools.isPtxExist(decoded_msg):
                     return False
             elif decoded_msg[1] == tools.MsgType.BLOCK_MSG:
@@ -1420,7 +1421,7 @@ class ServiceDb():
                                  PRIMARY KEY(signed_msg_hash)
                                 );
                              '''
-        msg_priority = msg_priority if msg_priority > 0 else 0
+        msg_priority = msg_priority if msg_priority > 1 else 1
         sql = "INSERT INTO v1_pending_msg (signed_msg_hash, signed_msg, pub_key, msg_type,  msg_priority) values (?,?,?,?,?)"
         print("INSERT INTO v1_pending_msg from %s msg_type: %s with %s priority" % (signed_msg_hash, msg_type, msg_priority))
         con = tools.SERVICE_DB.getServiceDB()
@@ -1570,6 +1571,69 @@ class Db():
     #         return self.insertDbKey(tools.b(tx_hash), tx_bytes, tools.NODE_DB, override)
 
 
+class Task(): #(Db, ServiceDb):
+    def __init__(self, name="Global"):
+        self.name = name
+        self.start_time = int(time.time())
+        self.verifiedSdbMsqQ = set()
+        self.verify_processing = False
+        self.delete_processing = False
+        self.deleteSdbMsqQ = set()
+        self.RUN_SECS = 10 #ToDo config
+
+    def resetTaskQ(self):
+        self.verifiedSdbMsqQ = set()
+
+    def isNone(self, var):
+        try:
+            if var is None:
+                return True
+            return False
+        except:
+            return True
+
+    # def deleteSdbMsg(self):
+    #     while True:
+    #         try:
+    #             now = int(time.time())
+    #             if not self.delete_processing and now - self.start_time >= self.RUN_SECS:  # TODO tools.config.TASK_VERIFY_SDB_INTERVAL_SECS
+    #                 self.delete_processing = True
+    #                 #self.start_time #synced with verifyTask
+    #                 print(now, ' - Task deleteSdbMsg')
+    #                 msg_hashes = "%s" % tuple(self.deleteSdbMsqQ)
+    #                 tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where msg_hash in %s" %  msg_hashes)
+    #                 self.delete_processing = False
+    #         except Exception as ex:
+    #             self.delete_processing = False
+    #
+    # def verifySdbMsg(self):
+    #     while True:
+    #         try:
+    #             now = int(time.time())
+    #             if not self.verify_processing and now - self.start_time >= self.RUN_SECS: #TODO tools.config.TASK_VERIFY_SDB_INTERVAL_SECS
+    #                 #self.deleteSdbMsg()
+    #                 self.verify_processing = True
+    #                 self.start_time = now
+    #                 print(now, ' - Task verifySdbMsg')
+    #                 #print("%s Started Task verify_processing" % tools.utc())
+    #                 #time.sleep(10)
+    #                 verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
+    #                 for m in  verify_q:
+    #                     msg_hash = m[0]
+    #                     print('msg_hash', msg_hash)
+    #                     signed_msg = (unpackb(m[1])[1][0])
+    #                     pubk = m[2]
+    #                     message, key = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
+    #                     if not self.isNone(message):
+    #                         inputs = message
+    #                     #vm = k.verify(unpackb(verify_q[0][1])[1][0])
+    #                     #self.verifiedSdbMsqQ.add()
+    #                 self.verify_processing = False
+    #
+    #         except Exception as ex:
+    #             self.verify_processing = False
+    #             print("Exception TaskVerifySdb: \n %s \n ErrorLine: %s" % (ex, ex.__traceback__.tb_lineno))
+    #             pass
 
 
 class Node():
@@ -1578,12 +1642,13 @@ class Node():
         #from queue import Queue
         #import celery
         #self.logger = Logger() #('Node')
+        self.TASKS = Task()
         self.PORT_REP = 7777  # Receiving data from the world TXs, queries ...etc
         self.PORT_UDP = 8888  # Submitting/Requesting data from the miners
         self.PORT_PUB = 9999  # Publish to Miners fanout
         self.PORT_PUB_SERVER = 5555   # Optional fanout
         self.PORT_SUB_CLIENT = 6666   # Optional subscribe
-        self.WORKERS = 3
+        self.WORKERS = 5
         self.tasksQ = PriorityQueue() #Queue()
         self.init_Qexec()
         self.init_servers()
@@ -1691,7 +1756,7 @@ class Node():
                 msg_type = umsg[0]
                 msg_content = umsg[1][0]
                 msg_key = umsg[1][1]
-                msg_priority = 1 if msg_type == tools.MsgType.Type.BLOCK_MSG.value else 0
+                msg_priority = 2 if msg_type == tools.MsgType.Type.BLOCK_MSG.value else 0
                 pmsg = packb(unpackb(rep_msg)[1:][0]) #repack msg - get rid of msgType
                 validated_msg = tools.validateMsg(pmsg)
                 try:
@@ -1724,8 +1789,9 @@ class Node():
                     insert = True
                     #tmp end
                     #tools.persistPendingMsg(msg_hash, rep_msg, pub_key)
+
                     # TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
-                    self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_type, msg_priority=msg_priority))
+                    ##self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_type, msg_priority=msg_priority))
 
 
                     # tools.SERVICE_DB.insertServiceDBpendingTX(
@@ -1746,9 +1812,9 @@ class Node():
                     #TODO Q
                     ##self.Q.put_nowait(rep_msg) if insert else None
                     #print('rep_msg[0:-2] HMAC: ', tools.Crypto.to_HMAC(tools.Crypto.verify([0], msg[2])))
-                    msg_hash = tools.Crypto.to_HMAC(rep_msg) #tools.Crypto.to_HMAC(unpackb(rep_msg)[0]) #tools.Crypto.to_HMAC(packb(umsg[0])) #tools.Crypto.to_HMAC(rep_msg)#tools.Crypto.to_HMAC(packb(umsg))
-                    print('msg hash: ', msg_hash)
-                    if tools.isDBvalue(msg_hash, tools.NODE_DB):
+                    pubaddr = tools.Crypto.to_HMAC(rep_msg) #tools.Crypto.to_HMAC(unpackb(rep_msg)[0]) #tools.Crypto.to_HMAC(packb(umsg[0])) #tools.Crypto.to_HMAC(rep_msg)#tools.Crypto.to_HMAC(packb(umsg))
+                    print('msg hash: ', pubaddr)
+                    if tools.isDBvalue(pubaddr, tools.NODE_DB):
                         rep_socket.send(b'Error: Msg Exist\n')
                     else: #TODO after persist + in Verify
                         #TODO ? tools.verifyMsgSig(SignedMessage(umsg[0]), VerifyKey(umsg[2]))
@@ -1759,6 +1825,9 @@ class Node():
                         ##    rep_socket.send(b'OK: SigVerified')
                         ##else:
                         ##    rep_socket.send(b'Error: Invalid Sig')
+
+                        self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_type,
+                                                                  msg_priority=msg_priority))
                         rep_socket.send(b'OK: Msg is Valid\n')
                 else:
                     error = "Msg Exist" if (msg_in_db is not None or msg_in_sdb) else "Invalid Msg"
@@ -1828,6 +1897,60 @@ class Node():
     #     return response
 
 
+    def deleteSdbMsgTask(self):
+        while True:
+            try:
+                now = int(time.time())
+                if not self.TASKS.delete_processing and now - self.TASKS.start_time >= self.TASKS.RUN_SECS:  # TODO tools.config.TASK_VERIFY_SDB_INTERVAL_SECS
+                    self.TASKS.delete_processing = True
+                    #self.start_time #synced with verifyTask
+                    print(now, ' - Task deleteSdbMsg')
+                    msg_hashes = "%s" % tuple(self.TASKS.deleteSdbMsqQ)
+                    tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where msg_hash in %s" %  msg_hashes)
+                    self.TASKS.delete_processing = False
+                    #self.TASKS.start_time = now
+            except Exception as ex:
+                self.TASKS.delete_processing = False
+                #self.TASKS.start_time = now
+
+
+
+    def verifySdbMsgTask(self):
+        while True:
+            try:
+                now = int(time.time())
+                if not self.TASKS.verify_processing and now - self.TASKS.start_time >= self.TASKS.RUN_SECS: #TODO tools.config.TASK_VERIFY_SDB_INTERVAL_SECS
+                    tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where node_verified < 0")
+                    self.TASKS.verify_processing = True
+                    self.TASKS.start_time = now
+                    print(now, ' - Task verifySdbMsg')
+                    #print("%s Started Task verify_processing" % tools.utc())
+                    #time.sleep(10)
+                    verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
+                    for m in  verify_q:
+                        msg_hash = m[0]
+                        print('msg_hash', msg_hash)
+                        signed_msg = (unpackb(m[1])[1][0])
+                        pubk = m[2]
+                        isVerified, msg_bin = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
+                        if not self.TASKS.isNone(isVerified):
+                            print("Processing msg:\n", unpackb(msg_bin))
+                            umsg = unpackb(msg_bin)
+                            vmsg = tools.Transaction.verifyMsg(umsg)
+                            print('vmsg', vmsg)
+                        else:
+                            print("Mark msg as INVALID - TODO")
+                        #vm = k.verify(unpackb(verify_q[0][1])[1][0])
+                        #self.verifiedSdbMsqQ.add()
+                    self.TASKS.verify_processing = False
+                    self.TASKS.start_time = now
+            except Exception as ex:
+                self.TASKS.verify_processing = False
+                self.TASKS.start_time = now
+                print("Exception TaskVerifySdb: \n %s \n ErrorLine: %s" % (ex, ex.__traceback__.tb_lineno))
+                pass
+
+
     def init_servers(self):
         # from time import sleep
         # import threading
@@ -1836,12 +1959,17 @@ class Node():
         self.killByPort(ports)
 
 
-        TYPES = ['rep', 'udps']
+        TYPES = ['rep', 'udps', 'TaskVerify', 'TaskDelete']
         workers = []
         print('TYPES', TYPES)
         for s in range(len(TYPES)):
             print('Starting server %s' % TYPES[s])
-            t = threading.Thread(target=self.init_server, args=(TYPES[s],), name='server-%s' % TYPES[
+            if TYPES[s] == 'TaskVerify':
+                t = threading.Thread(target=self.verifySdbMsgTask, args=(), name='node-TaskVerify')
+            # elif TYPES[s] == 'TaskDelete':
+            #     t = threading.Thread(target=self.deleteSdbMsg, args=(), name='node-TaskDelete')
+            else:
+                t = threading.Thread(target=self.init_server, args=(TYPES[s],), name='server-%s' % TYPES[
                 s])
             t.daemon = True
             t.start()
@@ -2445,11 +2573,6 @@ class Tools(Structure, Config, State, Node, Crypto, Network, Db, ServiceDb, Tran
         print(s)
 
 
-class Task(Tools):
-    def __init__(self, name="Global"):
-        self.name = name
-        self.start_time = tools.utc()
-
 
 if __name__ == "__main__":
     #TODO sync time ->
@@ -2610,8 +2733,16 @@ if __name__ == "__main__":
     bmsg = tools.WALLET.signMsg(block_msg, gSK, gVK._key)
     tools.sendMsgZmqReq(bmsg, 'localhost', tools.Node.PORT_REP)
 
+    verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
+    # verify_q = tools.SERVICE_DB.queryServiceDB(
+    #     "select signed_msg_hash,signed_msg,msg_type,pub_key from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
+    print('verify_q: %s' % verify_q)
     # testQ
+
+    time.sleep(30)
+    #tools.Node.TASKS.verifySdbMsg()
     tools.Node.putQ(lambda: int("a"))
+
     #
     # for i in range(3):
     #     #tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key)
