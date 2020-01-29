@@ -624,9 +624,14 @@ class Transaction():
     #todo to change verfySig, lenght, childs not exist in DB
     def verifyMsg(self, decoded_msg):
         try:
-            if decoded_msg[1] == tools.MsgType.Type.PARENT_TX_MSG.value: #tools.MsgType.PARENT_TX_MSG:
-                if tools.isPtxExist(decoded_msg):
-                    return False
+            valid = False
+            msg_hash = tools.to_HMAC(packb(decoded_msg))
+            if decoded_msg[1] == tools.MsgType.Type.PARENT_TX_MSG.value:
+                 ptx_inputs =  tools.arePtxInputsValid(decoded_msg)
+                 res =  not tools.isDBvalue(msg_hash) and ptx_inputs
+                 valid = True if res else False
+                 print("Ptx %s inputs valid - TODO verify amounts of \n%s\n" % (msg_hash, ptx_inputs))
+                 return valid
             elif decoded_msg[1] == tools.MsgType.BLOCK_MSG:
                 pass
             elif decoded_msg[1] == tools.MsgType.CONTRACT_TX:
@@ -912,6 +917,27 @@ class Transaction():
         return tools.isDBvalue(ptx_hash, print_caller='verifyPTX')
 
 
+    def arePtxInputsValid(self, unpacked_ptx_msg):
+        try:
+            invalid = True
+            ptx_hash = tools.MsgType.Type.PARENT_TX_MSG.value.decode() + tools.Crypto.to_HMAC(packb(unpacked_ptx_msg))
+            inputs_idx = tools.Transaction.TX_MSG_FIELD_INDEX["input_txs"]
+            msg_inputs = list(set([j for j in [i[inputs_idx] for i in unpacked_ptx_msg[inputs_idx]] for j in j]))
+            for inp in msg_inputs:
+                print("tools.isDBvalue? %s" % inp)
+                if not tools.isDBvalue(b"*" + inp[1:], print_caller='arePtxInputsValid') or \
+                   not tools.isDBvalue(b"+" + inp[1], print_caller='arePtxInputsValid') or \
+                       tools.isDBvalue(b"-" + inp[1:], print_caller='arePtxInputsValid'):
+                    print("Child PTX %s is invalid" % inp)
+                    ##return False
+                    break
+                invalid = True
+            res = msg_inputs if not invalid else False
+            print("PTX %s is valid=%s, \ninputs: %s\n" % (ptx_hash, ('True' if not invalid else False), msg_inputs))
+            return res
+        except Exception as ex:
+            tools.printStackTrace(ex)
+            return False
     # @staticmethod
     def persistTX4verify():
         pass
