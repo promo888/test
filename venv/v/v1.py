@@ -630,11 +630,15 @@ class Transaction():
                  ptx_inputs =  tools.arePtxInputsValid(decoded_msg)
                  res =  not tools.isDBvalue(msg_hash) and ptx_inputs
                  valid = True if res else False
-                 print("Ptx %s inputs valid - TODO verify amounts of \n%s\n" % (msg_hash, ptx_inputs))
+                 if valid:
+                     print("Ptx %s inputs valid - TODO verify amounts of \n%s\n" % (msg_hash, ptx_inputs))
+                 else:
+                     print("Ptx %s inputs INVALID" % (msg_hash))
                  return valid
-            elif decoded_msg[1] == tools.MsgType.BLOCK_MSG:
+            elif decoded_msg[1] == tools.MsgType.Type.BLOCK_MSG.value:
+                print("%s New Block Request" % tools.utc_timestamp())
                 pass
-            elif decoded_msg[1] == tools.MsgType.CONTRACT_TX:
+            elif decoded_msg[1] == tools.MsgType.Type.CONTRACT_TX.value:
                 pass #todo continue
             else:
                 return False
@@ -924,7 +928,11 @@ class Transaction():
             inputs_idx = tools.Transaction.TX_MSG_FIELD_INDEX["input_txs"]
             msg_inputs = list(set([j for j in [i[inputs_idx] for i in unpacked_ptx_msg[inputs_idx]] for j in j]))
             for inp in msg_inputs:
-                print("tools.isDBvalue? %s" % inp)
+                print("tools.isDBvalue? [inp[1:]] %s - %s" % ((inp[1:], tools.isDBvalue(inp[1:]))))
+                print("tools.isDBvalue? ['*' + inp[1:]] %s - %s" % ((b"*" + inp[1:], tools.isDBvalue(b"*" + inp[1:]))))
+                print("tools.isDBvalue? ['+' + inp[1:]] %s - %s" % ((b"+" + inp[1:], tools.isDBvalue(b"+" + inp[1:]))))
+                print("tools.isDBvalue? ['-' + inp[1:]] %s - %s" % ((b"-" + inp[1:], tools.isDBvalue(b"-" + inp[1:]))))
+
                 if not tools.isDBvalue(b"*" + inp[1:], print_caller='arePtxInputsValid') or \
                    not tools.isDBvalue(b"+" + inp[1], print_caller='arePtxInputsValid') or \
                        tools.isDBvalue(b"-" + inp[1:], print_caller='arePtxInputsValid'):
@@ -1085,10 +1093,12 @@ class Block():
 
     def insertBlock(self, block_hash, block_msg_bin):
         try:
-            block_id = tools.MsgType.Type.BLOCK_MSG.value + block_hash
+            block_id = tools.MsgType.Type.BLOCK_MSG.value.decode() + block_hash
+            print("INSERT BLOCK: %s" % block_id)
             tools.insertDbKey(block_id, block_msg_bin)  # saveBlockInDb
             self.saveLastBlockState(block_id)
-        except:
+        except Exception as ex:
+            print("INSERT BLOCK EXCEPTION: %s line %s" % (ex, ex.__traceback__.tb_lineno))
             return None
 
 
@@ -1169,10 +1179,14 @@ class Block():
         #tools.updateWallets(block_msg)
         #tools.Transaction.validateTX #TODO
 
+        print("INSERT PTX TRANSACTION: %s" % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash))
         tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash, g_signed_msg_and_key_bytes)  # PTX SDB
+        #print("INSERT BLOCK: %s" % (genesis_block_hash))
         #tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
         tools.Block.insertBlock(genesis_block_hash, block_msg_bin)
+        print("INSERT SPENT TRANSACTION: %s" %(tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash))
         tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash, tools.MsgType.Type.BLOCK_MSG.value.decode() + genesis_block_hash) #SPENT DOUBLE check
+        print("INSERT PTX TO WALLET: %s" % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash))
         tools.insertTxsToWallets(genesis_tx, tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash,
                                  tools.MsgType.Type.BLOCK_MSG.value.decode() + genesis_block_hash) #wallets update TODO state
         print('\n*** Genesis created ***\n')
@@ -1482,7 +1496,7 @@ class Db():
                 self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
             if self.getDbKey(bin_key, db_path) is None or override:
                 self.DB.LEVEL_DB.put(bin_key, bin_value) #Put is not plyvel
-                print("%s %s Inserting Key/Value: \nKey: %s \nValue: %s" % (desc, caller_n, bin_key, bin_value))
+                print("%s %s Inserting Key/Value: \nKey: %s \nValue: %s" % (desc, caller_n, unpackb(bin_key), unpackb(bin_value)))
                 return True
             else:
                 print('%s %s ERROR: Key %s Exist in DB' % (desc, caller_n, bin_key))
@@ -1560,7 +1574,7 @@ class Db():
                 dbm = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(_db_path)  # Once init held by the process
             value = dbm.get(bin_key) #dbm.Get(bin_key)
             # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
-            if value is None or value == b'' or not isinstance(value, bytes):
+            if value is None or value == b'': # or not isinstance(value, bytes):
                 return False
             return True
         except Exception as ex:
@@ -2211,6 +2225,7 @@ class Wallet():
                     sender_wallet[b"assets"][assets[i].encode()] = {'inputs': [], 'outputs': []}
                 #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
                 reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5], ptx_hash))
+                print("reciever_utxi/amount/ptx_hash: %s/%s/%s" % (reciever_utxi, amounts[i], ptx_hash))
                 reciever_wallet[b"assets"][assets[i].encode()][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
                 tools.insertDbKey(reciever_utxi, ptx_hash) #new unspent tx
                 tools.insertDbKey(recipients[i], reciever_wallet, override=True)
@@ -2227,7 +2242,7 @@ class Wallet():
                 spent_tx_output = tools.MsgType.Type.SPENT_TX.value.decode() + sender_utxo[i][1:]
                 tools.insertDbKey(spent_tx_output, block_hash)
                 print("SPENT TX", spent_tx_output)
-            print("unspent_itxs marked as SPENT\n", unspent_itxs)
+            print("UNSPENT TX marked as SPENT\n", unspent_itxs)
             print('\n*****Genesis wallet Reciever*****\n', unpackb(tools.getDbRec(recipients[0])))
             #print('\n*****Genesis wallet Receiver*****\n', unpackb(tools.getDbRec('e2316965114c5404fe58ef0d5e2bc578')))
 
