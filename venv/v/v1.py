@@ -217,6 +217,7 @@ class MsgTypes(enum.Enum):
     INVOKE_TX = b'\xd1'
     RELAY_TX = b'R'  # b'\xd2'
     MSG_MSG = b'M'  # b'\xd3'
+    WALLET = b"W"
 
 
 class MsgPtx():
@@ -1108,7 +1109,8 @@ class Block():
     def insertGenesis(self): #, genesis_block):
         gSK, gVK = tools.getKeysFromSeed('Miner0')
         gSK2, gVK2 = tools.getKeysFromSeed('Miner1')
-        g_wallet = tools.to_HMAC(gVK2._key)
+        g_wallet = tools.MsgType.Type.WALLET.value.decode() + tools.to_HMAC(gVK2._key)
+        print('g_wallet: ', g_wallet)
 
         #Todo to remove
         isWalletCreated = tools.createWallet(g_wallet)
@@ -1816,10 +1818,17 @@ class Node():
                 validated_msg = tools.validateMsg(pmsg)
                 try:
                     pub_key = msg_key #rep_msg[-32:]
-                    pub_addr = tools.Crypto.to_HMAC(pub_key)
-                    wallet_exist = tools.DB.getDbRec(pub_addr, tools.DB.DB_PATH)
-                except:
-                    rep_socket.send(b'Error: Invalid Sender')
+                    pub_addr = "W" + tools.Crypto.to_HMAC(pub_key)
+                    ##wallet_exist = tools.DB.getDbRec(pub_addr, tools.DB.DB_PATH)
+                    wallet_exist = tools.getDbKey(pub_addr)
+                    if wallet_exist is None:
+                        rep_socket.send(b'Error: Invalid Sender')
+                        continue
+                    wallet_exist = True
+                except Exception as ex:
+                    ##rep_socket.send(b'Error: Invalid Sender')
+                    print("Exception REP server: %s %s" % (ex.__traceback__.tb_lineno, ex))
+                    rep_socket.send(b'Error: Invalid Msg')
                     continue
 
 
@@ -2107,12 +2116,15 @@ class Wallet():
 
 
     def createWallet(self, pubkey_hash_id):
-        if not tools.isDBvalue(pubkey_hash_id):
-            tools.insertDbKey(pubkey_hash_id, {'version': tools.version, 'assets': \
+        print("CreateWallet pubkey_hash_id: ", pubkey_hash_id)
+        wallet_id = pubkey_hash_id #tools.MsgType.Type.WALLET.value.decode() + pubkey_hash_id
+        print("Wallet ID: ", wallet_id)
+        if tools.getDbKey(wallet_id) is None:
+            tools.insertDbKey(wallet_id, {'version': tools.version, 'assets': \
                 {tools.config.MAIN_COIN: {'inputs': [], 'outputs': []}}}, \
                  tools.DB.DB_PATH) #todo change '1' to meaningful coin name
         ##if not tools.isDBvalue(pubkey_hash_id):
-        if tools.getDbKey(pubkey_hash_id) is None:
+        if tools.getDbKey(wallet_id) is None:
             return False
         return True
 
@@ -2221,7 +2233,7 @@ class Wallet():
             assets = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["asset_type"]]
             amounts = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["amounts"]]
             recipients = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["to_addrs"]]
-            sender_addr = tools.to_HMAC(ptx_msg[-1])
+            sender_addr = "W" + tools.to_HMAC(ptx_msg[-1])
             if len(assets) != len(amounts) or len(amounts) != len(unspent_itxs) or len(unspent_itxs) != len(recipients):
                 return False # missing data
             not_existing_assets = [a for a in assets if tools.getDbKey(a) is None]
@@ -2310,6 +2322,7 @@ class Wallet():
 
 
     def saveLocalWallet(self, pub_addr, bin_data): #todo pwd protection and encoding
+        print("saveLocalWallet pub_addr", pub_addr)
         wallet_path = os.path.join(self.path, pub_addr + '.wallet')
         if not self.isWalletVerified(pub_addr):
             self.reportInconsistentWallet(pub_addr)
@@ -2330,9 +2343,10 @@ class Wallet():
 
     def getLocalWalletUnspentAssets(self, pub_addr, asset_type=None):
         try:
-            wallet_path = os.path.join(tools.WALLET.path, pub_addr + '.wallet')
+            wallet_path = os.path.join(tools.WALLET.path, tools.MsgType.Type.WALLET.value.decode() + pub_addr + '.wallet')
             with open(wallet_path, "rb") as read_wallet:
-                wallet_data = unpackb(self.decodeLocalWallet(read_wallet.read(), "TODO")) #TODO encrypted filed or sqlite db
+                wallet_content = read_wallet.read()
+                wallet_data = unpackb(self.decodeLocalWallet(wallet_content, "TODO")) #TODO encrypted filed or sqlite db
                 if asset_type is None:
                     # todo field indexing + stateNotPending?
                     unspent_assets = {}
@@ -2756,18 +2770,18 @@ if __name__ == "__main__":
    #TODO read from protected pwd binary encoded + verifyExistingBeforeUPdateWallet
     gSK, gVK = tools.getKeysFromSeed('Miner0')
     gSK2, gVK2 = tools.getKeysFromSeed('Miner1')
-    r_wallet = tools.to_HMAC(gVK2._key)
-    s_wallet = tools.to_HMAC(gVK._key)
+    r_wallet = "W" + tools.to_HMAC(gVK2._key)
+    s_wallet = "W" + tools.to_HMAC(gVK._key)
     wallet_data = tools.WALLET.getDbWallet(s_wallet)
     print('\n*****Genesis DB wallet Sender*****\n', wallet_data)
     wallet_data = tools.WALLET.getDbWallet(r_wallet)
     print('\n*****Genesis DB wallet Reciever*****\n', wallet_data)
     wallet_data_bin = tools.getDbRec(r_wallet)
     print('\n*****Genesis Local wallet Reciever*****', tools.WALLET.saveLocalWallet(r_wallet, wallet_data_bin))
-    ua = tools.WALLET.getLocalWalletUnspentAssets(r_wallet)
-    print("\nWallet", r_wallet, " Unspent amounts", ua)
+    ##ua = tools.WALLET.getLocalWalletUnspentAssets(r_wallet)
+    ##print("\nWallet", r_wallet, " Unspent amounts", ua)
 
-    to_addrs = [tools.to_HMAC("test%s" % i) for i in range(1, 4)]
+    to_addrs = ["W" + tools.to_HMAC("test%s" % i) for i in range(1, 4)]
     print("*****3 payments - valid TX*****")
     ptx = tools.WALLET.createTx(gVK2._key, [b'1', b'1', b'1'], [b'1', b'1', b'1'], to_addrs)
     smsg = tools.WALLET.signMsg(ptx, gSK2, gVK2._key)
