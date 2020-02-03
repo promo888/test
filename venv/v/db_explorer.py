@@ -1,4 +1,6 @@
 from flask import Flask, render_template, request, send_file, send_from_directory, jsonify
+import html
+from html import escape, unescape
 
 import os, sys, subprocess, psutil, pkgutil
 import msgpack as mp
@@ -69,7 +71,7 @@ class Db():
         if db_path is None:
             db_path = self.DB_PATH
         if type(bin_key) is not bytes:
-            bin_key = packb(bin_key)#str(bin_key).encode() #self.b(bin_key)
+            bin_key = bin_key.encode() ##packb(bin_key)#str(bin_key).encode() #self.b(bin_key)
         try:
             _db = None
             _db_path = self.DB_PATH
@@ -77,8 +79,9 @@ class Db():
 
             if _db is None:
                 _db = plyvel.DB(db_path) #leveldb.LevelDB(_db_path)
-            return bytes(_db.get(bin_key)) #bytes(_db.Get(bin_key))
+            return _db.get(bin_key) ##bytes(_db.get(bin_key)) #bytes(_db.Get(bin_key))
         except Exception as ex:
+            print(ex)
             return None
 
 
@@ -136,7 +139,8 @@ DB = Db(NODE_DB)
 
 @app.route('/dbk', methods=['GET', 'POST'])
 def query_leveldb_key():
-    key = request.args.get('key')
+    key = request.query_string.decode().split("key=")[1] or None #request.args.get('key') #.encode()
+    print('key"%s"' % key)
     res = DB.getDbKey(key)
     resp = "Key %s NOT EXIST" % key if res is None else "Key: %s, Value: %s" %(key,unpackb(res))
     return resp

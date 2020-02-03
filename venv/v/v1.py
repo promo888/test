@@ -682,8 +682,8 @@ class Transaction():
             unpacked_msg = unpackb(bin_msg) #if not isinstance(bin_msg, tuple) else bin_msg
             if not len(unpacked_msg) == 2 or not isinstance(unpacked_msg[1], bytes) or not isinstance(unpacked_msg[1], bytes):
                 return False
-            addr_exist = tools.isDBvalue(tools.to_HMAC(unpacked_msg[1]))
-            if not addr_exist:
+            addr_exist = tools.getDbKey(tools.to_HMAC(unpacked_msg[1]))
+            if addr_exist is None:
                 return False
             return True
 
@@ -1110,8 +1110,9 @@ class Block():
         #Todo to remove
         isWalletCreated = tools.createWallet(g_wallet)
         assert isWalletCreated
-        assert tools.isDBvalue(g_wallet)
-        assert unpackb(tools.getDbKey(packb(g_wallet)))[b'version'] == tools.b(self.version)
+        assert tools.getDbKey(g_wallet) ##tools.isDBvalue(g_wallet)
+        ##assert unpackb(tools.getDbKey(packb(g_wallet)))[b'version'] == tools.b(self.version)
+        assert unpackb(tools.getDbKey(g_wallet.encode()))[b'version'] == tools.b(self.version)
         isAssetCreated = tools.createAsset('1', ' MainCoin - FxCash ', 128000000000,
                                            10, 1000, [], g_wallet,  desc='createAsset')
         assert isAssetCreated
@@ -1488,15 +1489,22 @@ class Db():
         try:
             if db_path is None:
                 db_path = tools.DB.DB_PATH
+            if isinstance(bin_key, str):
+                bin_key = bin_key.strip()
             if not isinstance(bin_key, bytes):
-                bin_key = tools.packb(bin_key)
+                #print("insertDbKey %s %s" % (type(bin_key), bin_key))
+                bin_key = bin_key.encode() #('utf8') ##tools.packb(bin_key)
+            if isinstance(bin_value, str):
+                bin_value = bin_value.strip()
             if not isinstance(bin_value, bytes):
                 bin_value = tools.packb(bin_value)
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
             if self.getDbKey(bin_key, db_path) is None or override:
                 self.DB.LEVEL_DB.put(bin_key, bin_value) #Put is not plyvel
-                print("%s %s Inserting Key/Value: \nKey: %s \nValue: %s" % (desc, caller_n, unpackb(bin_key), unpackb(bin_value)))
+                ##print("%s %s Inserting Key/Value: \nKey: %s \nValue: %s" % (desc, caller_n, unpackb(bin_key), unpackb(bin_value)))
+                print("%s %s Inserting Key/Value: \nKey: %s \nValue: %s" % (
+                desc, caller_n, bin_key.decode(), unpackb(bin_value)))
                 return True
             else:
                 print('%s %s ERROR: Key %s Exist in DB' % (desc, caller_n, bin_key))
@@ -1529,7 +1537,7 @@ class Db():
         if db_path is None:
             db_path = self.DB.DB_PATH
         if type(bin_key) is not bytes:
-            bin_key = tools.packb(bin_key)#str(bin_key).encode() #self.b(bin_key)
+            bin_key = bin_key.encode() ##tools.packb(bin_key)#str(bin_key).encode() #self.b(bin_key)
         try:
             _db = None
             if type(self) is Tools: #db_path is None:
@@ -1540,7 +1548,11 @@ class Db():
                 _db = tools.DB.LEVEL_DB
             if _db is None:
                 _db = plyvel.DB(db_path) #leveldb.LevelDB(_db_path)
-            return bytes(_db.get(bin_key)) #bytes(_db.Get(bin_key))
+            res = _db.get(bin_key) ##bytes(_db.get(bin_key)) #TODO EmptyValue=None #bytes(_db.Get(bin_key))
+            return res
+            #value = None if res is None or len(res) == 0 else value
+            #return value
+
         except Exception as ex:
             return None
 
@@ -2096,7 +2108,8 @@ class Wallet():
             tools.insertDbKey(pubkey_hash_id, {'version': tools.version, 'assets': \
                 {tools.config.MAIN_COIN: {'inputs': [], 'outputs': []}}}, \
                  tools.DB.DB_PATH) #todo change '1' to meaningful coin name
-        if not tools.isDBvalue(pubkey_hash_id):
+        ##if not tools.isDBvalue(pubkey_hash_id):
+        if tools.getDbKey(pubkey_hash_id) is None:
             return False
         return True
 
@@ -2208,7 +2221,7 @@ class Wallet():
             sender_addr = tools.to_HMAC(ptx_msg[-1])
             if len(assets) != len(amounts) or len(amounts) != len(unspent_itxs) or len(unspent_itxs) != len(recipients):
                 return False # missing data
-            not_existing_assets = [a for a in assets if not tools.isDBvalue(a)]
+            not_existing_assets = [a for a in assets if tools.getDbKey(a) is None]
             if len(not_existing_assets) > 0:
                 return False #assets not yet created in the blockchain
             tools.createWallet(sender_addr) #if multisig #TODO if fee on create is required
@@ -2227,6 +2240,7 @@ class Wallet():
                 reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5], ptx_hash))
                 print("reciever_utxi/amount/ptx_hash: %s/%s/%s" % (reciever_utxi, amounts[i], ptx_hash))
                 reciever_wallet[b"assets"][assets[i].encode()][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
+                print('reciever_utxi', reciever_utxi, ptx_hash)
                 tools.insertDbKey(reciever_utxi, ptx_hash) #new unspent tx
                 tools.insertDbKey(recipients[i], reciever_wallet, override=True)
                 print("Payment of %s %s coins from %s to wallet %s" % (assets[i], amounts[i], sender_addr, recipients[i]))
@@ -2260,8 +2274,8 @@ class Wallet():
             # wallet[self.OUTPUTS] += tx[self.OUTPUTS]
             return True #TODO state for blockchain integrity
         except Exception as ex:
-            print("Exception: ", ex)
-            tools.printStackTrace(ex)
+            print("Exception insertTxsToWallets %s %s" % (ex.__traceback__.tb_lineno, ex))
+            #tools.printStackTrace(ex)
             return False
 
     def getDbWallet(self, pub_addr): #TODO at least same result from 3 random miners /byVerify for expected StateHash + report minerForPenalty
@@ -2340,6 +2354,7 @@ class Wallet():
                         return (utxis_total - utxos_total), utxis_amounts
 
         except Exception as ex:
+            print('Exception getLocalWalletUnspentAssets: %s %s' % (ex.__traceback__.tb_lineno, ex))
             #tools.printStackTrace(ex)
             return None
 
