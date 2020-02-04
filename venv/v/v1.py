@@ -683,7 +683,7 @@ class Transaction():
             unpacked_msg = unpackb(bin_msg) #if not isinstance(bin_msg, tuple) else bin_msg
             if not len(unpacked_msg) == 2 or not isinstance(unpacked_msg[1], bytes) or not isinstance(unpacked_msg[1], bytes):
                 return False
-            addr_exist = tools.getDbKey(tools.to_HMAC(unpacked_msg[1]))
+            addr_exist = tools.getDbKey("W" + tools.to_HMAC(unpacked_msg[1]))
             if addr_exist is None:
                 return False
             return True
@@ -1109,12 +1109,13 @@ class Block():
     def insertGenesis(self): #, genesis_block):
         gSK, gVK = tools.getKeysFromSeed('Miner0')
         gSK2, gVK2 = tools.getKeysFromSeed('Miner1')
-        g_wallet = tools.MsgType.Type.WALLET.value.decode() + tools.to_HMAC(gVK2._key)
-        print('g_wallet: ', g_wallet)
+        g_wallet = tools.to_HMAC(gVK2._key)
+        print('g_wallet: ', type(g_wallet), g_wallet)
 
         #Todo to remove
         isWalletCreated = tools.createWallet(g_wallet)
         assert isWalletCreated
+        g_wallet = "W" + g_wallet
         assert tools.getDbKey(g_wallet) ##tools.isDBvalue(g_wallet)
         ##assert unpackb(tools.getDbKey(packb(g_wallet)))[b'version'] == tools.b(self.version)
         assert unpackb(tools.getDbKey(g_wallet.encode()))[b'version'] == tools.b(self.version)
@@ -2023,7 +2024,7 @@ class Node():
         self.killByPort(ports)
 
 
-        TYPES = ['rep', 'udps', 'TaskVerify', 'TaskDelete']
+        TYPES = ['rep', 'udps']#, 'TaskVerify', 'TaskDelete']
         workers = []
         print('TYPES', TYPES)
         for s in range(len(TYPES)):
@@ -2117,7 +2118,7 @@ class Wallet():
 
     def createWallet(self, pubkey_hash_id):
         print("CreateWallet pubkey_hash_id: ", pubkey_hash_id)
-        wallet_id = pubkey_hash_id #tools.MsgType.Type.WALLET.value.decode() + pubkey_hash_id
+        wallet_id = tools.MsgType.Type.WALLET.value.decode() + pubkey_hash_id #tools.MsgType.Type.WALLET.value.decode() + pubkey_hash_id
         print("Wallet ID: ", wallet_id)
         if tools.getDbKey(wallet_id) is None:
             tools.insertDbKey(wallet_id, {'version': tools.version, 'assets': \
@@ -2233,16 +2234,20 @@ class Wallet():
             assets = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["asset_type"]]
             amounts = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["amounts"]]
             recipients = ptx_msg[self.Transaction.TX_MSG_FIELD_INDEX["to_addrs"]]
-            sender_addr = "W" + tools.to_HMAC(ptx_msg[-1])
+            sender_addr = tools.to_HMAC(ptx_msg[-1])
             if len(assets) != len(amounts) or len(amounts) != len(unspent_itxs) or len(unspent_itxs) != len(recipients):
                 return False # missing data
             not_existing_assets = [a for a in assets if tools.getDbKey(a) is None]
             if len(not_existing_assets) > 0:
                 return False #assets not yet created in the blockchain
-            tools.createWallet(sender_addr) #if multisig #TODO if fee on create is required
-            sender_wallet = self.getDbWallet(sender_addr)
+            created = tools.createWallet(sender_addr) #if multisig #TODO if fee on create is required
+            assert  created
+            sender_wallet_id = "W" + sender_addr
+            sender_wallet = self.getDbWallet(sender_wallet_id)
+            assert sender_wallet
+
             for i in range(len(recipients)):
-                tools.createWallet(recipients[i])
+                tools.createWallet(recipients[i][1:])
                 reciever_wallet = self.getDbWallet(recipients[i])
                 if not reciever_wallet or not sender_wallet:
                     return False
@@ -2260,10 +2265,11 @@ class Wallet():
                 tools.insertDbKey(recipients[i], reciever_wallet, override=True)
                 print("Payment of %s %s coins from %s to wallet %s" % (assets[i], amounts[i], sender_addr, recipients[i]))
                 print("Reciever Wallet:\n", reciever_wallet)
-                sender_wallet = self.getDbWallet(sender_addr)  # reopen for update or change ?
+                sender_wallet = self.getDbWallet(sender_wallet_id)  # reopen for update or change ?
+                assert sender_wallet
                 sender_wallet[b"assets"][assets[i].encode()][b'outputs'].append([reciever_utxi, amounts[i], ptx_hash])
-                tools.insertDbKey(sender_addr, sender_wallet, override=True)
-                print("Payment from %s to wallet %s of  %s %s coins" % (sender_addr, recipients[i], assets[i], amounts[i]))
+                tools.insertDbKey(sender_wallet_id, sender_wallet, override=True)
+                print("Payment from %s to wallet %s of  %s %s coins" % (sender_wallet_id, recipients[i], assets[i], amounts[i]))
                 print("Sender Wallet:\n", sender_wallet)
             #[tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value + unspent_itxs[i][1:], block_hash) for i in unspent_itxs for i in unspent_itxs[i]]
             sender_utxo = [i for i in unspent_itxs for i in i]
@@ -2341,9 +2347,16 @@ class Wallet():
             return False
 
 
-    def getLocalWalletUnspentAssets(self, pub_addr, asset_type=None):
+    def getLocalWalletUnspentAssets(self, wallet_id, asset_type=None):
         try:
-            wallet_path = os.path.join(tools.WALLET.path, tools.MsgType.Type.WALLET.value.decode() + pub_addr + '.wallet')
+            wallet_path = os.path.join(tools.WALLET.path, wallet_id + '.wallet')
+            #todo remove 4 test only
+            if not os.path.exists(wallet_path):
+                created = self.createWallet(wallet_id[1:])
+                assert created
+                wallet_data = tools.getDbKey(wallet_id)
+                self.saveLocalWallet(wallet_id, wallet_data)
+            #
             with open(wallet_path, "rb") as read_wallet:
                 wallet_content = read_wallet.read()
                 wallet_data = unpackb(self.decodeLocalWallet(wallet_content, "TODO")) #TODO encrypted filed or sqlite db
@@ -2378,7 +2391,8 @@ class Wallet():
 
     def createTx(self, pub_key, asset_types=[], amounts=[], to_addrs=[], service_fee=b"0.001"): #todo set fee from config+validate min 4 miners
         pub_addr = tools.to_HMAC(pub_key)
-        ua  = self.getLocalWalletUnspentAssets(pub_addr)
+        wallet_id = "W" + pub_addr
+        ua  = self.getLocalWalletUnspentAssets(wallet_id)
         if ua is None:
             return None
         else:
