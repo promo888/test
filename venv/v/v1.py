@@ -1101,6 +1101,7 @@ class Block():
             print("INSERT BLOCK: %s" % block_id)
             tools.insertDbKey(block_id, block_msg_bin)  # saveBlockInDb
             self.saveLastBlockState(block_id)
+            return block_id
         except Exception as ex:
             print("INSERT BLOCK EXCEPTION: %s line %s" % (ex, ex.__traceback__.tb_lineno))
             return None
@@ -1126,11 +1127,13 @@ class Block():
         genesis_msg = tools.to_HMAC(' * GENESIS FX CRYPTO CASH COIN *')
         utc_ts = tools.utc_timestamp_b()
         unspent_input_genesis_tx = tools.MsgType.Type.UNSPENT_TX.value.decode() + genesis_msg.ljust(32)
+        print("unspent_input_genesis_tx", unspent_input_genesis_tx)
         genesis_ctx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value.decode(), [[unspent_input_genesis_tx]][0],
                        [g_wallet][0], [tools.config.MAIN_COIN][0], [b'999999999.12345678'][0], b'0.001',
                        utc_ts, gVK._key)
         genesis_ctx_hmac = tools.to_HMAC(genesis_ctx)
         utxo_ctx0 = tools.MsgType.Type.UNSPENT_TX.value.decode() + genesis_ctx_hmac
+        print("genesis_ctx", utxo_ctx0)
         genesis_tx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value, [[unspent_input_genesis_tx]],
                                     [g_wallet], [tools.config.MAIN_COIN], [b'999999999.12345678'], b'0.001',
                                     [utxo_ctx0], utc_ts,
@@ -1173,31 +1176,36 @@ class Block():
         assert VerifyKey(unpackb(genesis_block)[1])._key == gVK._key
         isValidMsg = tools.isMsgValid(genesis_block)
         block_umsg = unpackb(genesis_block)
-        isBlockSigVerified, block_msg_bin = tools.verifyMsgSig(block_umsg[0], block_umsg[1])
+        isBlockSigVerified, block_msg_verified_bin = tools.verifyMsgSig(block_umsg[0], block_umsg[1])
         assert isBlockSigVerified
         # todo isMinerValid(min_supply, penalties_limit)
 
         #tools.insertDbKey(tools.MsgType.BLOCK_MSG + genesis_msg, 0) #insert Genesis block (blockHash, blockNum)
-        block_msg = tools.validateBlock(block_msg_bin)
+        block_msg = tools.validateBlock(block_msg_verified_bin)
         assert block_msg
         ##isBlockVerified = tools.verifyBlock(block_msg, genesis_block_hash) #TODO - After Genesis
         ##assert isBlockVerified #TODO rollback onError
         #tools.insertDbKey(validatedBlock[self.BLOCK_MSG_FIELD_INDEX.get("prev_block_hash")], b'GENESIS_0_BLOCK')
         #tools.updateWallets(block_msg)
         #tools.Transaction.validateTX #TODO
-
-        print("INSERT PTX TRANSACTION: %s" % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash))
-        tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash, g_signed_msg_and_key_bytes)  # PTX SDB
-        #print("INSERT BLOCK: %s" % (genesis_block_hash))
-        #tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
-        tools.Block.insertBlock(genesis_block_hash, block_msg_bin)
-        print("INSERT SPENT TRANSACTION: %s" %(tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash))
-        tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash, tools.MsgType.Type.BLOCK_MSG.value.decode() + genesis_block_hash) #SPENT DOUBLE check
-        print("INSERT PTX TO WALLET: %s" % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash))
-        tools.insertTxsToWallets(genesis_tx, tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash,
-                                 tools.MsgType.Type.BLOCK_MSG.value.decode() + genesis_block_hash) #wallets update TODO state
-        print('\n*** Genesis created ***\n')
-
+        print("INSERT BLOCK: %s" % (genesis_block_hash))
+        # tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
+        block_id = tools.Block.insertBlock(genesis_block_hash, block_msg_verified_bin)
+        if not block_id is None:
+            g_tx_hash = unpackb(block_msg_verified_bin)[4][0].decode()[1:]
+            print("INSERT *PTX TRANSACTION: %s" % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash))
+            tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash, g_signed_msg_and_key_bytes)  # PTX SDB
+            print("INSERT +PTX TRANSACTION: %s" % (tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash))
+            tools.insertDbKey(tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash, block_id)
+            print("INSERT +PTX TO WALLET: %s" % (tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash))
+            tools.insertTxsToWallets(genesis_tx, tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash, block_id) #wallets update TODO state
+            #Next Block Marked by CTX
+            # print("INSERT -PTX SPENT TRANSACTION: %s" % (tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash))
+            # tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash, block_id)  # SPENT DOUBLE check
+            print('\n*** Genesis created ***\n')
+        else:
+            pass
+        #TODO Rollback State, Q, Block, Ctx, ...msgTypes, DB, SDB
         #sys.exit(0)
 
         ##block_bin = tools.validateMsg(genesis_block)
@@ -2257,11 +2265,16 @@ class Wallet():
                 if not assets[i] in sender_wallet[b"assets"]:
                     sender_wallet[b"assets"][assets[i].encode()] = {'inputs': [], 'outputs': []}
                 #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
-                reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5], ptx_hash))
+                reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2][0], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5][0], ptx_msg[6], ptx_msg[8], ptx_msg[9]))
                 print("reciever_utxi/amount/ptx_hash: %s/%s/%s" % (reciever_utxi, amounts[i], ptx_hash))
                 reciever_wallet[b"assets"][assets[i].encode()][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
                 print('reciever_utxi', reciever_utxi, ptx_hash)
+                print("INSERT *CTX TRANSACTION: %s from *PTX: %s txIndex: %s " % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + reciever_utxi[1:], ptx_hash, i))
+                #TODO limit ctx <=255 in Ptx?
+                tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + reciever_utxi[1:], i)  # new unspent tx
+                print("INSERT +CTX TRANSACTION %s from *PTX %s"  % (reciever_utxi, ptx_hash))
                 tools.insertDbKey(reciever_utxi, ptx_hash) #new unspent tx
+                print("INSERT +CTX %s from *PTX %s to Wallet %s" % (reciever_utxi, ptx_hash, recipients[i]))
                 tools.insertDbKey(recipients[i], reciever_wallet, override=True)
                 print("Payment of %s %s coins from %s to wallet %s" % (assets[i], amounts[i], sender_addr, recipients[i]))
                 print("Reciever Wallet:\n", reciever_wallet)
@@ -2276,8 +2289,8 @@ class Wallet():
             for i in range(len(sender_utxo)):
                 spent_tx_output = tools.MsgType.Type.SPENT_TX.value.decode() + sender_utxo[i][1:]
                 tools.insertDbKey(spent_tx_output, block_hash)
-                print("SPENT TX", spent_tx_output)
-            print("UNSPENT TX marked as SPENT\n", unspent_itxs)
+                print("SPENT ITX", spent_tx_output)
+            print("UNSPENT ITX marked as SPENT\n", unspent_itxs)
             print('\n*****Genesis wallet Reciever*****\n', unpackb(tools.getDbRec(recipients[0])))
             #print('\n*****Genesis wallet Receiver*****\n', unpackb(tools.getDbRec('e2316965114c5404fe58ef0d5e2bc578')))
 
