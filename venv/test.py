@@ -11,6 +11,64 @@
 import sys, os, multiprocessing, subprocess, asyncio, aiohttp
 import leveldb
 
+from twisted.internet import reactor
+from twisted.enterprise import adbapi
+from twisted.internet.threads import deferToThreadPool
+from twisted.python.threadpool import ThreadPool
+from threading import Thread
+#import sqlobject
+from sqlobject import connectionForURI, sqlhub, SQLObject, StringCol
+
+class TwistedSqlite():
+    # class Test(SQLObject): #test
+    #     id = StringCol()
+    #     name = StringCol()
+        # CREATE TABLE `test`(
+        #     `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
+        #     `name` TEXT NOT NULL
+        # );
+
+
+    def __init__(self):
+        self.ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+        self.NODE_SERVICE_DB = 'service_db/DATA/service.db' #%s/ self.ROOT_DIR
+        print("self.NODE_SERVICE_DB", self.NODE_SERVICE_DB)
+        self.dbpool = adbapi.ConnectionPool("sqlite3", self.NODE_SERVICE_DB)
+
+    def selectCallback(self, error):
+        print("Select Error", error)
+        return error
+
+    def insertCallback(self, error):
+        print("Insert Error", error)
+        return error
+
+    def select(self, query):
+        return self.dbpool.runQuery(query)#.addCallback(self.selectCallback)
+
+    def printSelect(self, results):
+        for r in results:
+            print(r[0])
+
+    def printInsert(self, results):
+        for r in results:
+            print(r[0])
+
+    def insert(self, query):
+        return self.dbpool.runQuery(query).addCallback(self.insertCallback)
+
+
+    def runTest(self):
+        for i in range(100000):
+            s = self.select("select count(*) from test")
+            i = self.insert("insert into test values (%s)" % i)
+        reactor.run()
+
+
+TwistedSqlite().runTest()
+sys.exit(0)
+
+
 
 #from v.v1 import Version
 # Version.p('static print')
@@ -180,6 +238,8 @@ from binascii import hexlify, unhexlify
 from beemgraphenebase.account import PrivateKey, PublicKey, Address
 import beemgraphenebase.ecdsasig as ecda
 from beemgraphenebase.py23 import py23_bytes
+
+
 
 
 class Benchmark(object):

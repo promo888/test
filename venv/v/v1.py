@@ -336,7 +336,7 @@ class Config():
         self.NODE_DB_TMP = '%s/../db/DATA/tmp' % self.ROOT_DIR
         self.LOGS = '%s/../logs' % self.ROOT_DIR
         self.WALLETS = '%s/../WALLETS' % self.ROOT_DIR
-        self.MAIN_COIN = '1' #todo 2change 4meaningful name FxCash, CryptoCash, Pcoin,
+        self.MAIN_COIN = b'FxCash' #'1' #todo 2change 4meaningful name FxCash, CryptoCash, Pcoin,
         self.TASK_VERIFY_SDB_INTERVAL_SECS = 10
         self.TASK_DELETE_SDB_INTERVAL_SECS = 10
 
@@ -637,7 +637,7 @@ class Transaction():
                      print("Ptx %s inputs INVALID" % (msg_hash))
                  return valid
             elif decoded_msg[1] == tools.MsgType.Type.BLOCK_MSG.value:
-                print("%s New Block Request" % tools.utc_timestamp())
+                print("%s New Block Request -TODO" % tools.utc_timestamp())
                 pass
             elif decoded_msg[1] == tools.MsgType.Type.CONTRACT_TX.value:
                 pass #todo continue
@@ -931,12 +931,12 @@ class Transaction():
             for inp in msg_inputs:
 
                 print("tools.isDBvalue? [inp[1:]] %s - %s" % ((inp[1:], tools.isDBvalue(inp[1:]))))
-                print("tools.isDBvalue? ['*' + inp[1:]] %s - %s" % ((b"*" + inp[1:], tools.isDBvalue(b"*" + inp[1:]))))
-                print("tools.isDBvalue? ['+' + inp[1:]] %s - %s" % ((b"+" + inp[1:], tools.isDBvalue(b"+" + inp[1:]))))
+                print("not tools.isDBvalue? ['*' + inp[1:]] %s - %s" % ((b"*" + inp[1:], not tools.isDBvalue(b"*" + inp[1:]))))
+                print("not tools.isDBvalue? ['+' + inp[1:]] %s - %s" % ((b"+" + inp[1:], not tools.isDBvalue(b"+" + inp[1:]))))
                 print("tools.isDBvalue? ['-' + inp[1:]] %s - %s" % ((b"-" + inp[1:], tools.isDBvalue(b"-" + inp[1:]))))
 
                 valid = False
-                if tools.isDBvalue(b"*" + inp[1:], print_caller='arePtxInputsValid') or \
+                if not tools.isDBvalue(b"*" + inp[1:], print_caller='arePtxInputsValid') or \
                    not tools.isDBvalue(b"+" + inp[1:], print_caller='arePtxInputsValid') or \
                        tools.isDBvalue(b"-" + inp[1:], print_caller='arePtxInputsValid'):
                     print("Child PTX %s is invalid" % inp)
@@ -1120,7 +1120,7 @@ class Block():
         assert tools.getDbKey(g_wallet) ##tools.isDBvalue(g_wallet)
         ##assert unpackb(tools.getDbKey(packb(g_wallet)))[b'version'] == tools.b(self.version)
         assert unpackb(tools.getDbKey(g_wallet.encode()))[b'version'] == tools.b(self.version)
-        isAssetCreated = tools.createAsset('1', ' MainCoin - FxCash ', 128000000000,
+        isAssetCreated = tools.createAsset(tools.config.MAIN_COIN, ' MainCoin - FxCash ', 128000000000,
                                            10, 1000, [], g_wallet,  desc='createAsset')
         assert isAssetCreated
 
@@ -1336,6 +1336,7 @@ class ServiceDb():
         print('NODE_DB, NODE_SERVICE_DB', self.NODE_DB, self.NODE_SERVICE_DB)
         self.createNodeDbIfNotExist()
         self.SERVICE_DB = sqlite3.connect(self.NODE_SERVICE_DB, isolation_level=None, check_same_thread=False)
+        self.SERVICE_DB.execute("pragma journal_mode=wal")
         self.createTablesIfNotExist()
 
 
@@ -1347,12 +1348,11 @@ class ServiceDb():
                                  'signed_msg'	BLOB NOT NULL,                                 
                                  'pub_key'	BLOB NOT NULL,
                                  'msg_type' BLOB NOT NULL DEFAULT NULL,
-                                 'msg_priority' INTEGER DEFAULT 0,
-                                 'node_verified'	INTEGER DEFAULT 0,
+                                 'msg_priority' INTEGER DEFAULT 0,                                 
                                  'node_date'	timestamp default current_timestamp,                                 
                                  PRIMARY KEY(signed_msg_hash)                                 
                                 );
-                             '''
+                             ''' #'node_verified'	INTEGER DEFAULT 0,
 
                                        #  '''
                                        #     CREATE TABLE  if not exists  v1_pending_msg (
@@ -1364,6 +1364,19 @@ class ServiceDb():
                                        #      PRIMARY KEY(signed_msg_hash)
                                        # );
                                        # '''
+        ddl_v1_verified_msg = '''CREATE TABLE  if not exists  v1_verified_msg 
+                                        (
+                                         'signed_msg_hash' TEXT NOT NULL,
+                                         'unsigned_msg_hash' TEXT NOT NULL,
+                                         'unsigned_msg'	BLOB NOT NULL,                                 
+                                         'pub_key'	BLOB NOT NULL,
+                                         'msg_type' BLOB NOT NULL DEFAULT NULL,
+                                         'msg_priority' INTEGER DEFAULT 0,
+                                         'itx_list'	BLOB NOT NULL,
+                                         'node_date'	timestamp default current_timestamp,                                 
+                                         PRIMARY KEY(unsigned_msg_hash)                                 
+                                        );
+                                     '''
         ddl_v1_pending_blk = '''
                                   CREATE TABLE  if not exists  v1_pending_blk (
                                   'version'	TEXT NOT NULL,
@@ -1397,7 +1410,7 @@ class ServiceDb():
                        '''
 
 
-        ddl_list = [ddl_v1_pending_msg, ddl_v1_pending_blk, ddl_v1_pending_tx]
+        ddl_list = [ddl_v1_pending_msg,  ddl_v1_verified_msg] #ddl_v1_pending_blk, ddl_v1_pending_tx]
         con = self.SERVICE_DB
         try:
             with con:
@@ -1486,6 +1499,23 @@ class ServiceDb():
                 con.commit()
         except Exception as ex:
             err_msg = "Exception ServiceDB: \nINSERT INTO v1_pending_msg\n %s\n%s" % (ex, ex.__traceback__.tb_lineno)
+            #print(err_msg)
+            tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
+            return None
+
+
+
+    def persistVerifiedMsg(self, signed_msg_hash, unsigned_msg_hash, unsigned_msg, pub_key, msg_type, itx_list, msg_priority=0):
+        msg_priority = msg_priority if msg_priority > 1 else 1
+        sql = "INSERT INTO v1_verified_msg (signed_msg_hash, unsigned_msg_hash, unsigned_msg, pub_key, msg_type, itx_list, msg_priority) values (?,?,?,?,?,?,?)"
+        print("INSERT INTO v1_verified_msg from %s to %s msg_type: %s with %s priority itx_list(%s)" % (signed_msg_hash, unsigned_msg_hash, msg_type, msg_priority, itx_list))
+        con = tools.SERVICE_DB.getServiceDB()
+        try:
+            with con:
+                con.execute(sql, [signed_msg_hash, unsigned_msg_hash, sqlite3.Binary(unsigned_msg), sqlite3.Binary(pub_key), msg_type, sqlite3.Binary(itx_list), msg_priority])
+                con.commit()
+        except Exception as ex:
+            err_msg = "Exception ServiceDB: \nINSERT INTO v1_verified_msg\n %s\n%s" % (ex, ex.__traceback__.tb_lineno)
             #print(err_msg)
             tools.SERVICE_DB.logger.logp(err_msg, logging.ERROR)
             return None
@@ -1600,7 +1630,7 @@ class Db():
                 dbm = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(_db_path)  # Once init held by the process
             value = dbm.get(bin_key) #dbm.Get(bin_key)
             # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
-            if value is None or value == b'': # or not isinstance(value, bytes):
+            if value is None: #or value == b'': # or not isinstance(value, bytes):
                 return False
             return True
         except Exception as ex:
@@ -1768,11 +1798,15 @@ class Node():
             if not self.tasksQ.full():
                 self.tasksQ.put_nowait(func_with_args)
                 #self.Q.task_done()
+                #self.tasksQ.task_done()
             else:
-                print("The Q is FULL, persist or fallback")
+                print("The Q is FULL, persist or fallback")            #
         except Exception as ex:
             print("ExceptionQ: %s \n%s\n" % (ex, ex.__traceback__.tb_lineno))
+            #self.tasksQ.task_done()
             # raise Exception(ex)
+        # finally:
+        #     self.Q.task_done()
 
 
     def exeQ(self):
@@ -1785,7 +1819,8 @@ class Node():
                     self.tasksQ.task_done()
             except Exception as ex:
                 print("ExceptionQ: %s \n%s\n" % (ex, ex.__traceback__.tb_lineno) )
-
+            # finally:
+            #     self.tasksQ.task_done()
 
     def init_server(self, type):
         # from multiprocessing import Process #ToDo killPorts+watchdog
@@ -1979,7 +2014,7 @@ class Node():
                     #self.start_time #synced with verifyTask
                     print(now, ' - Task deleteSdbMsg')
                     msg_hashes = "%s" % tuple(self.TASKS.deleteSdbMsqQ)
-                    tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where msg_hash in %s" %  msg_hashes)
+                    tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where signed_msg_hash in %s" %  msg_hashes)
                     self.TASKS.delete_processing = False
                     #self.TASKS.start_time = now
             except Exception as ex:
@@ -1993,16 +2028,17 @@ class Node():
             try:
                 now = int(time.time())
                 if not self.TASKS.verify_processing and now - self.TASKS.start_time >= self.TASKS.RUN_SECS: #TODO tools.config.TASK_VERIFY_SDB_INTERVAL_SECS
-                    tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where node_verified < 0")
+                    ##tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where node_verified < 0") # where node_verified < 0")
+                    #self.deleteSdbMsgTask()
                     self.TASKS.verify_processing = True
                     self.TASKS.start_time = now
                     print(now, ' - Task verifySdbMsg')
                     #print("%s Started Task verify_processing" % tools.utc())
                     #time.sleep(10)
-                    verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
+                    verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg as p where p.signed_msg_hash not in (select signed_msg_hash from v1_verified_msg) order by msg_priority desc, node_date asc") # where node_verified='0'
                     for m in  verify_q:
-                        msg_hash = m[0]
-                        print('msg_hash', msg_hash)
+                        signed_msg_hash = m[0]
+                        print('msg_hash', signed_msg_hash)
                         signed_msg = (unpackb(m[1])[1][0])
                         pubk = m[2]
                         isVerified, msg_bin = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
@@ -2011,8 +2047,20 @@ class Node():
                             umsg = unpackb(msg_bin)
                             vmsg = tools.Transaction.verifyMsg(umsg)
                             print('vmsg', vmsg)
+                            vmsg_hash = tools.to_HMAC(msg_bin)
+                            print('vmsg_hash', vmsg_hash)
+                            msg_type = packb(['TODO'])
+                            msg_priority = 2 #['TODO']
+                            itx_list = packb(['TODO ITX_LIST'])
+                            #self.putQ(lambda: tools.persistVerifiedMsg(signed_msg_hash, vmsg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority=msg_priority))
+                            tools.persistVerifiedMsg(signed_msg_hash, vmsg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority)
+                            #self.TASKS.deleteSdbMsqQ.add(signed_msg_hash)
                         else:
-                            print("Mark msg as INVALID - TODO")
+                            print("Delete INVALID %s signed_msg_hash from sdb- TODO" % signed_msg_hash)
+                            #self.TASKS.deleteSdbMsqQ.add(msg_hash)
+                        #self.deleteSdbMsgTask()
+
+
                         #vm = k.verify(unpackb(verify_q[0][1])[1][0])
                         #self.verifiedSdbMsqQ.add()
                     self.TASKS.verify_processing = False
@@ -2032,15 +2080,15 @@ class Node():
         self.killByPort(ports)
 
 
-        TYPES = ['rep', 'udps']#, 'TaskVerify', 'TaskDelete']
+        TYPES = ['rep', 'udps', 'TaskVerify']#, 'TaskDelete']#, 'TaskVerify', 'TaskDelete']
         workers = []
         print('TYPES', TYPES)
         for s in range(len(TYPES)):
             print('Starting server %s' % TYPES[s])
             if TYPES[s] == 'TaskVerify':
                 t = threading.Thread(target=self.verifySdbMsgTask, args=(), name='node-TaskVerify')
-            # elif TYPES[s] == 'TaskDelete':
-            #     t = threading.Thread(target=self.deleteSdbMsg, args=(), name='node-TaskDelete')
+            elif TYPES[s] == 'TaskDelete':
+                 t = threading.Thread(target=self.TASKS.deleteSdbMsqQ, args=(), name='node-TaskDelete')
             else:
                 t = threading.Thread(target=self.init_server, args=(TYPES[s],), name='server-%s' % TYPES[
                 s])
@@ -2260,27 +2308,28 @@ class Wallet():
                 if not reciever_wallet or not sender_wallet:
                     return False
 
-                if not assets[i].encode() in reciever_wallet[b"assets"]:
+                if not assets[i] in reciever_wallet[b"assets"]:
                     reciever_wallet[b"assets"][assets[i]] = {b'inputs': [], b'outputs': []}
                 if not assets[i] in sender_wallet[b"assets"]:
                     sender_wallet[b"assets"][assets[i].encode()] = {'inputs': [], 'outputs': []}
                 #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
                 reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2][0], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5][0], ptx_msg[6], ptx_msg[8], ptx_msg[9]))
                 print("reciever_utxi/amount/ptx_hash: %s/%s/%s" % (reciever_utxi, amounts[i], ptx_hash))
-                reciever_wallet[b"assets"][assets[i].encode()][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
+                reciever_wallet[b"assets"][assets[i]][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
                 print('reciever_utxi', reciever_utxi, ptx_hash)
                 print("INSERT *CTX TRANSACTION: %s from *PTX: %s txIndex: %s " % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + reciever_utxi[1:], ptx_hash, i))
                 #TODO limit ctx <=255 in Ptx?
+                assert ptx_msg[7][0][1:] == reciever_utxi[1:] #ctx_hash
                 tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + reciever_utxi[1:], i)  # new unspent tx
                 print("INSERT +CTX TRANSACTION %s from *PTX %s"  % (reciever_utxi, ptx_hash))
                 tools.insertDbKey(reciever_utxi, ptx_hash) #new unspent tx
                 print("INSERT +CTX %s from *PTX %s to Wallet %s" % (reciever_utxi, ptx_hash, recipients[i]))
                 tools.insertDbKey(recipients[i], reciever_wallet, override=True)
-                print("Payment of %s %s coins from %s to wallet %s" % (assets[i], amounts[i], sender_addr, recipients[i]))
+                print("Payment of %s %s coins from %s to wallet %s" % (assets[i], amounts[i], sender_wallet_id, recipients[i]))
                 print("Reciever Wallet:\n", reciever_wallet)
                 sender_wallet = self.getDbWallet(sender_wallet_id)  # reopen for update or change ?
                 assert sender_wallet
-                sender_wallet[b"assets"][assets[i].encode()][b'outputs'].append([reciever_utxi, amounts[i], ptx_hash])
+                sender_wallet[b"assets"][assets[i]][b'outputs'].append([reciever_utxi, amounts[i], ptx_hash])
                 tools.insertDbKey(sender_wallet_id, sender_wallet, override=True)
                 print("Payment from %s to wallet %s of  %s %s coins" % (sender_wallet_id, recipients[i], assets[i], amounts[i]))
                 print("Sender Wallet:\n", sender_wallet)
@@ -2810,7 +2859,7 @@ if __name__ == "__main__":
 
     to_addrs = ["W" + tools.to_HMAC("test%s" % i) for i in range(1, 4)]
     print("*****3 payments - valid TX*****")
-    ptx = tools.WALLET.createTx(gVK2._key, [b'1', b'1', b'1'], [b'1', b'1', b'1'], to_addrs)
+    ptx = tools.WALLET.createTx(gVK2._key, [tools.config.MAIN_COIN, tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b'1', b'1', b'1'], to_addrs)
     smsg = tools.WALLET.signMsg(ptx, gSK2, gVK2._key)
     umsg = unpackb(smsg)
     vmsg = umsg[1][0]
@@ -2823,8 +2872,8 @@ if __name__ == "__main__":
     print("*****3 payments - DUPLICATE TX*****")
     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
-    ptx1 = tools.testTx("Miner1", [b"1"], [b"0.1"], ["test1"])
-    ptx2 = tools.testTx("test1", [b"1"], [b"0.1"], ["test2"]) # ptx2 is None #TODO toValidate
+    ptx1 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"0.1"], ["test1"])
+    ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"0.1"], ["test2"]) # ptx2 is None #TODO toValidate
     msg_list = [ptx1, ptx2] #TODO check for None msg
     print("*****1st BLOCK validMsg - with INVALID TX inside*****")
     block_msg = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.BLOCK_MSG.value,
@@ -2833,7 +2882,7 @@ if __name__ == "__main__":
     bmsg = tools.WALLET.signMsg(block_msg, gSK, gVK._key)
     tools.sendMsgZmqReq(bmsg, 'localhost', tools.Node.PORT_REP)
 
-    verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
+    verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg  as p where p.signed_msg_hash not in (select signed_msg_hash from v1_verified_msg) order by msg_priority desc, node_date asc") #where node_verified='0'
     # verify_q = tools.SERVICE_DB.queryServiceDB(
     #     "select signed_msg_hash,signed_msg,msg_type,pub_key from v1_pending_msg where node_verified='0' order by msg_priority desc, node_date asc")
     print('verify_q: %s' % verify_q)
@@ -2842,6 +2891,7 @@ if __name__ == "__main__":
     time.sleep(30)
     #tools.Node.TASKS.verifySdbMsg()
     tools.Node.putQ(lambda: int("a"))
+    #tools.Node.TASKS.deleteSdbMsqQ
 
     #
     # for i in range(3):
@@ -2902,9 +2952,9 @@ if __name__ == "__main__":
     btx = tools.decodeDbMsg(bmsg)
     stx = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx where msg_hash='%s'" % tx_hash2)[0] #not exist in DB
     stx2 = tools.getServiceDbTx(tx_hash2) #[0]
-    print(type(stx), type(stx2))
-    print(stx2)
-    #assert type(stx) == type(stx2)
+    print("stx", type(stx), type(stx2))
+    print("stx2", stx2)
+    assert type(stx) == type(stx2)
     assert stx == stx2
 
     #assert btx == stx[:-6] ##TODO repack of Amounts field ->repack parts with BigEndian
