@@ -1521,6 +1521,28 @@ class ServiceDb():
             return None
 
 
+    def deleteSdbVerifiedMsgs(self):
+        try:
+            sql = "delete from v1_pending_msg where signed_msg_hash in (select signed_msg_hash from v1_verified_msg)"
+            print("deleteSdbVerifiedMsgsSql: ", sql)
+            tools.SERVICE_DB.queryServiceDB(sql)
+        except Exception as ex:
+            print("Exception deleteSdbVerifiedMsgs: %s \n%s" % (ex, ex.__traceback__.tb_lineno) )
+
+
+    def deleteSdbInvalidMsgs(self, signed_msgs):
+        try:
+            if len(signed_msgs) == 0:
+                return
+            signed_msg_hashes = str(tuple(signed_msgs))
+            sql = "delete from v1_pending_msg where signed_msg_hash in %s" % signed_msg_hashes
+            print("deleteSdbInvalidMsgsSql: ", sql) #todo debug.print
+            tools.SERVICE_DB.queryServiceDB(sql)
+        except Exception as ex:
+            print("Exception deleteSdbInvalidMsgs: %s \n%s" % (ex, ex.__traceback__.tb_lineno) )
+
+
+
 class Db():
     def __init__(self, db_path):
         #self.logger = Logger() #Logger('Db')
@@ -1674,7 +1696,8 @@ class Task(): #(Db, ServiceDb):
         self.verifiedSdbMsqQ = set()
         self.verify_processing = False
         self.delete_processing = False
-        self.deleteSdbMsqQ = set()
+        self.deleteSdbVerifiedMsqQ = set()
+        self.deleteSdbInvalidMsqQ = set()
         self.RUN_SECS = 10 #ToDo config
 
     def resetTaskQ(self):
@@ -2013,8 +2036,10 @@ class Node():
                     self.TASKS.delete_processing = True
                     #self.start_time #synced with verifyTask
                     print(now, ' - Task deleteSdbMsg')
-                    msg_hashes = "%s" % tuple(self.TASKS.deleteSdbMsqQ)
-                    tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where signed_msg_hash in %s" %  msg_hashes)
+                    sql = "delete from v1_pending_msg where signed_msg_hash in %s" %  msg_hashes
+                    print(sql)
+                    msg_hashes = "deleteSdbMsqQ: %s" % tuple(self.TASKS.deleteSdbVerifiedMsqQ)
+                    tools.SERVICE_DB.queryServiceDB(sql)
                     self.TASKS.delete_processing = False
                     #self.TASKS.start_time = now
             except Exception as ex:
@@ -2054,15 +2079,15 @@ class Node():
                             itx_list = packb(['TODO ITX_LIST'])
                             #self.putQ(lambda: tools.persistVerifiedMsg(signed_msg_hash, vmsg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority=msg_priority))
                             tools.persistVerifiedMsg(signed_msg_hash, vmsg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority)
-                            #self.TASKS.deleteSdbMsqQ.add(signed_msg_hash)
+                            self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
+                            #self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash) #negative test
                         else:
-                            print("Delete INVALID %s signed_msg_hash from sdb- TODO" % signed_msg_hash)
-                            #self.TASKS.deleteSdbMsqQ.add(msg_hash)
-                        #self.deleteSdbMsgTask()
+                            self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
+
+                        tools.SERVICE_DB.deleteSdbVerifiedMsgs()
+                        tools.SERVICE_DB.deleteSdbInvalidMsgs(self.TASKS.deleteSdbInvalidMsqQ)
 
 
-                        #vm = k.verify(unpackb(verify_q[0][1])[1][0])
-                        #self.verifiedSdbMsqQ.add()
                     self.TASKS.verify_processing = False
                     self.TASKS.start_time = now
             except Exception as ex:
@@ -2088,7 +2113,7 @@ class Node():
             if TYPES[s] == 'TaskVerify':
                 t = threading.Thread(target=self.verifySdbMsgTask, args=(), name='node-TaskVerify')
             elif TYPES[s] == 'TaskDelete':
-                 t = threading.Thread(target=self.TASKS.deleteSdbMsqQ, args=(), name='node-TaskDelete')
+                 t = threading.Thread(target=self.TASKS.deleteSdbVerifiedMsqQ, args=(), name='node-TaskDelete')
             else:
                 t = threading.Thread(target=self.init_server, args=(TYPES[s],), name='server-%s' % TYPES[
                 s])
