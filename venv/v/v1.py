@@ -2086,7 +2086,7 @@ class Node():
 
                         tools.SERVICE_DB.deleteSdbVerifiedMsgs()
                         tools.SERVICE_DB.deleteSdbInvalidMsgs(self.TASKS.deleteSdbInvalidMsqQ)
-
+                        #TODO to continue pending2verified content with SqlObject
 
                     self.TASKS.verify_processing = False
                     self.TASKS.start_time = now
