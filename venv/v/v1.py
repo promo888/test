@@ -2097,14 +2097,17 @@ class Node():
                                 # block_inputs_u = list(set([i for i in [it[2] for it in ublock[2]] for i in i])) #block inputs
                                 # pass #TODO to continue
                             #continue
+                                #todo change in block write
                                 block_bin = unpackb(m[1])
                                 assert signed_msg_hash == tools.to_HMAC(block_bin[1])  # DON'T REMOVE [msg,sig] correct hmac validation
                                 nodeSig, blockMsg = tools.verifyMsgSig(block_bin[1][0], block_bin[1][1])
                                 ublock = unpackb(blockMsg)
-                                if not nodeSig or None in ublock[4]:
+                                if not nodeSig or None in ublock[4] or len(ublock[4]) != len(set(ublock[4])): #none or duplicate checks
                                     # False in [tools.arePtxInputsValid(tx) for tx in ublock[2]]:
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
                                     continue
+
+                                # complete msgs in blocks
                                 msg_list = [unpackb(msg) for msg in ublock[4]]
                                 for msg in msg_list:
                                     msg_type = msg[0]
@@ -2118,10 +2121,24 @@ class Node():
                                     print('msg_type: ', msg_type)
                                     if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
                                         msg_itxs_valid = tools.arePtxInputsValid(unpacked_block_msg)
-                                        print('areMsgItxValid:', msg_itxs_valid)
+                                        print('areMsgItxValid:', msg_itxs_valid == False, msg_itxs_valid)
                                         if not msg_itxs_valid:
                                             raise Exception("Invalid Msg Inputs in Block")
                                         print("block msg inputs:\n", [msg for msg in unpacked_block_msg[2]])
+
+                            #msg hashes in block #todo to continue from ublock above not umsg[4]
+                            # sdb_msg = tools.SERVICE_DB.queryServiceDB(
+                            #     "select * from v1_pending_msg where signed_msg_hash='%s'" % signed_msg_hash)
+                            # if sdb_msg is None or len(sdb_msg) == 0:
+                            #     pass
+                            #     #todo getMsgFromNode(signed_msg_hash)
+                            #     #continue (Don't delete prior retrieve & verify)
+                            # else:
+                            #     b_key, b_msg = unpackb(sdb_msg[0][1])[1]
+                            #     sig, msg = tools.verifyMsgSig(b_key, b_msg)
+                            #     umsg = unpackb(msg)
+                            #     b_itx_list = list(set([itx for itx in umsg[4]]))
+
 
                             elif m[3] == tools.MsgType.Type.PARENT_TX_MSG.value:
                                 isVerified, msg_bin = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
@@ -2191,6 +2208,8 @@ class Node():
         sk, vk = tools.getKeysFromSeed(senderSeed)
         to = [tools.to_HMAC(s) for s in to_addrs]
         ptx = tools.WALLET.createTx(vk._key, assets, amounts, to)
+        #if ptx is None:
+        #    return None
         smsg = tools.WALLET.signMsg(ptx, sk, vk._key) #signMsg prepends msgType
         if smsg is None:
             return None
@@ -2530,7 +2549,8 @@ class Wallet():
                     for a in wallet_data[b"assets"]:
                         utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][a][b"inputs"]])
                         utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs"]])
-                        if utxos_total >= utxis_total:
+                        #TODO total_otput+fees
+                        if utxos_total > utxis_total: #or utxos_total == 0 or utxis_total == 0:
                             return None
                         else:
                             #utxis = set()
@@ -2974,9 +2994,14 @@ if __name__ == "__main__":
     print("*****3 payments - DUPLICATE TX*****")
     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
-    ptx1 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"0.1"], ["test1"])
-    ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"0.1"], ["test2"]) # ptx2 is None #TODO toValidate
-    msg_list = [ptx1, ptx2] #TODO check for None msg
+    ptx1 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"])
+    #ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"1"], ["test2"]) # ptx2 is None #TODO toValidate
+    time.sleep(1)
+    ##ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
+    ##assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
+    ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
+    msg_list = [ptx1, ptx2] #[ptx1, ptx2] # Negative test for ptx2 = None + TODO check for None msg
+    ##msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
     print("*****1st BLOCK validMsg - with INVALID TX inside*****")
     block_msg = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.BLOCK_MSG.value,
                  '1', tools.Block.getLastBlockId().encode(),
