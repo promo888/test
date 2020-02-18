@@ -1881,23 +1881,6 @@ class Node():
                 # rep_socket.send(b'OK:') #(rep_msg)
 
                 print('ZMQ REP request: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
-
-                error = ""
-                #print(tx_hash, ' Key Exist in DB ', tools.isDBvalue(tools.b(tx_hash), tools.NODE_DB))
-               ## validated_msg = tools.validateMsg(rep_msg)
-                #assert validated_msg
-               #  if not validated_msg or validated_msg is None:
-               #      print('Error: Msg Validation failed')
-               #      rep_socket.send(b'Error: Msg Validation failed')
-               #  msgType = validated_msg[1]
-               #  if isinstance(validated_msg[1], bytes):
-               #      msgType = unpackb(validated_msg[1])
-               # # print('validated_msg_TYPE: ', tools.MsgType.getMsgType(msgType))
-               #  #TODO to continue
-               #  if validated_msg[1] == tools.MsgType.BLOCK_MSG:
-               #      print('OK: Msg is Valid')
-               #      rep_socket.send(b'OK: Msg is Valid')
-
                 umsg = unpackb(rep_msg)
                 msg_type = umsg[0]
                 msg_content = umsg[1][0]
@@ -1926,41 +1909,6 @@ class Node():
                 msg_in_sdb = tools.getServiceDbTx(msg_hash)
                 if not wallet_exist is None and not msg_in_sdb and validated_msg and msg_in_db is None: #TODO reject if ipaddr > 1 or from_addr within the same block
                     umsg = unpackb(rep_msg)
-                    #from_addr = tools.Crypto.to_HMAC(umsg[1])
-
-                    # values = [v if isinstance(v, str) else '[' + ",".join([l for l in v]) + ']' for v in validated_msg]
-                    # values += [sqlite3.Binary(umsg[1]), msg_hash, from_addr, 0, tools.utc()]
-                    # #ServiceDb().getServiceDB().
-                    # insert = tools.SERVICE_DB.insertServiceDB(
-                    #     "insert into v1_pending_tx (version, msg_type, input_txs, to_addrs, "
-                    #     "asset_type, amounts, pub_keys, msg_hash, from_addr, "
-                    #     "node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?) ",
-                    #     values)
-
-                    #tmp test
-                    # tools.insertDbKey(tools.to_HMAC(rep_msg), rep_msg, tools.NODE_DB_TMP)
-                    insert = True
-                    #tmp end
-                    #tools.persistPendingMsg(msg_hash, rep_msg, pub_key)
-
-                    # TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
-                    ##self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_type, msg_priority=msg_priority))
-
-
-                    # tools.SERVICE_DB.insertServiceDBpendingTX(
-                    #     "insert into v1_pending_tx (version, msg_type, input_txs, to_addrs, asset_type, amounts, pub_keys, msg_hash, from_addr, node_verified, node_date) values (?,?,?,?,?,?,?,?,?,?,?,?,?) ",
-                    #     values)
-                    # #07-11-2018 08:17:27.818358 Exception ServiceDb.insertServiceDBpendingTX SqlLite NODE_SERVICE_DB: v1.py 630, UNIQUE constraint failed: v1_pending_tx.msg_hash
-
-#smsg = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_tx")[0]
-                    # restored_msg = ()
-                    # for f in smsg[:-4]:
-                    #     if isinstance(f, str) and '[' not in f:
-                    #         restored_msg += (f,)
-                    #     else:
-                    #         restored_msg += ([str(v) for v in f],)
-                    # restored_msg
-#TODO to continue restored_msg[0] == validated_msg, packb(restored_msg) == rep_msg
 
                     #TODO Q
                     ##self.Q.put_nowait(rep_msg) if insert else None
@@ -1969,18 +1917,8 @@ class Node():
                     print('msg hash: ', pubaddr)
                     if tools.isDBvalue(pubaddr, tools.NODE_DB):
                         rep_socket.send(b'Error: Msg Exist\n')
-                    else: #TODO after persist + in Verify
-                        #TODO ? tools.verifyMsgSig(SignedMessage(umsg[0]), VerifyKey(umsg[2]))
-                        #print('signed_msg after  req', umsg[0])
-                        #print('signed_msg req: ', unpackb(umsg[0])) #TODO ToFIX SignedMsg
-                        ##verified_sig, signed_msg = tools.verifyMsgSig(umsg[0], umsg[2])
-                        ##if verified_sig:
-                        ##    rep_socket.send(b'OK: SigVerified')
-                        ##else:
-                        ##    rep_socket.send(b'Error: Invalid Sig')
-
-                        self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_type,
-                                                                  msg_priority=msg_priority))
+                    else:
+                        self.putQ(lambda: tools.persistPendingMsg(msg_hash, rep_msg, pub_key, msg_type, msg_priority=msg_priority))
                         rep_socket.send(b'OK: Msg is Valid\n')
                 else:
                     error = "Msg Exist" if (msg_in_db is not None or msg_in_sdb) else "Invalid Msg"
@@ -2107,49 +2045,50 @@ class Node():
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
                                     continue
 
-                                #todo duplicate input msgs
-                                # if len(ublock[4]) == len(set(ublock[4])):
-                                #     raise Exception("Duplicate inputs msgs in Block")
+                                #todo assert prevBlock
+
                                 assert len(ublock[4]) == len(set(ublock[4]))
 
                                 # complete msgs in blocks
-                                msg_list = [unpackb(msg) for msg in ublock[4]]
+                                msg_list = ublock[4] #[unpackb(msg) for msg in ublock[4]] #ublock[4]#
+                                print('block_msg_list' , msg_list)
                                 for msg in msg_list:
-                                    msg_type = msg[0]
-                                    msg_bin, msg_sig = msg[1]
-                                    #print(tools.verifyMsgSig(msg_bin, msg_sig))
-                                    isVerified, verified_msg_bin = tools.verifyMsgSig(msg_bin, msg_sig)
-                                    if not isVerified:
-                                        raise Exception("Invalid Msg Sig in Block")
-                                    unpacked_block_msg = unpackb(verified_msg_bin)
-                                    print('verified_unpacked_block_msg: ', unpacked_block_msg)
-                                    print('msg_type: ', msg_type)
-                                    if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
-                                        msg_itxs_valid = tools.arePtxInputsValid(unpacked_block_msg)
-                                        print('areMsgItxValid:', msg_itxs_valid == False, msg_itxs_valid)
-                                        if not msg_itxs_valid:
-                                            raise Exception("Invalid Msg Inputs in Block")
-                                        print("block msg inputs:\n", [msg for msg in unpacked_block_msg[2]])
+                                    #msg_type = msg[0]
+                                    #msg_bin, msg_sig = msg[1]
+                                    # #print(tools.verifyMsgSig(msg_bin, msg_sig))
+                                    # isVerified, verified_msg_bin = tools.verifyMsgSig(msg_bin, msg_sig)
+                                    # if not isVerified:
+                                    #     raise Exception("Invalid Msg Sig in Block")
+                                    # unpacked_block_msg = unpackb(verified_msg_bin)
+                                    # print('verified_unpacked_block_msg: ', unpacked_block_msg)
+                                    # print('msg_type: ', msg_type)
+                                    # if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
+                                    #     msg_itxs_valid = tools.arePtxInputsValid(unpacked_block_msg)
+                                    #     print('areMsgItxValid:', msg_itxs_valid == False, msg_itxs_valid)
+                                    #     if not msg_itxs_valid:
+                                    #         raise Exception("Invalid Msg Inputs in Block")
+                                    #     print("block msg inputs:\n", [msg for msg in unpacked_block_msg[2]])
 
                             #msg hashes in block #todo to continue from ublock above not umsg[4]
-                            # sdb_msg = tools.SERVICE_DB.queryServiceDB(
-                            #     "select * from v1_pending_msg where signed_msg_hash='%s'" % signed_msg_hash)
-                            # if sdb_msg is None or len(sdb_msg) == 0:
-                            #     pass
-                            #     #todo getMsgFromNode(signed_msg_hash)
-                            #     #continue (Don't delete prior retrieve & verify)
-                            # else:
-                            #     b_key, b_msg = unpackb(sdb_msg[0][1])[1]
-                            #     sig, msg = tools.verifyMsgSig(b_key, b_msg)
-                            #     umsg = unpackb(msg)
-                            #     b_itx_list = list(set([itx for itx in umsg[4]]))
+                                    sdb_msg = tools.SERVICE_DB.queryServiceDB(
+                                        "select * from v1_pending_msg where signed_msg_hash='%s'" % signed_msg_hash)
+                                    if sdb_msg is None or len(sdb_msg) == 0:
+                                        pass
+                                        #todo getMsgFromNode(signed_msg_hash)
+                                        #continue (Don't delete prior retrieve & verify)
+                                    else:
+                                        b_key, b_msg = unpackb(sdb_msg[0][1])[1]
+                                        sig, msg = tools.verifyMsgSig(b_key, b_msg)
+                                        umsg = unpackb(msg)
+                                        b_itx_list = list(set([itx for itx in umsg[4]]))
 
 
                             elif m[3] == tools.MsgType.Type.PARENT_TX_MSG.value:
                                 isVerified, msg_bin = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
                                 if not self.TASKS.isNone(isVerified):
                                     umsg = unpackb(msg_bin)
-                                    print("Processing msg:\n", umsg)
+                                    #assert signed_msg_hash == tools.to_HMAC(umsg[1])
+                                    print("Processing msg: %s\n%s" % (signed_msg_hash, umsg))
                                     vmsg = tools.Transaction.verifyMsg(umsg)
                                     print('vmsg', vmsg)
                                     vmsg_hash = tools.to_HMAC(msg_bin)
@@ -2191,7 +2130,7 @@ class Node():
         self.killByPort(ports)
 
 
-        TYPES = ['rep', 'udps']#, 'TaskVerify']#, 'TaskVerify', TaskVerify includes'TaskDelete']
+        TYPES = ['rep', 'udps', 'TaskVerify']#, 'TaskVerify', TaskVerify includes'TaskDelete']
         workers = []
         print('TYPES', TYPES)
         for s in range(len(TYPES)):
@@ -2216,10 +2155,11 @@ class Node():
         #if ptx is None:
         #    return None
         smsg = tools.WALLET.signMsg(ptx, sk, vk._key) #signMsg prepends msgType
+
         if smsg is None:
             return None
         tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
-        return smsg
+        return smsg[1:] #get rid of msgtype
 
 
     def isNodePenaltied(self):
@@ -2666,9 +2606,11 @@ class Wallet():
             signed_msg_and_pubkey = (signed_msg, pub_key)
             msg_and_pubkey_bytes = packb(signed_msg_and_pubkey)
             #msg_and_pubkey_hash = tools.to_HMAC(msg_and_pubkey_bytes)
-            ##return msg_and_pubkey_bytes #, msg_and_pubkey_hash
+            #return msg_and_pubkey_bytes #, msg_and_pubkey_hash
             msgtype_msg_pubkey_bytes = (msg[1], signed_msg_and_pubkey)
+            print("msg key: %s, msg WRAPPED key %s" % (tools.to_HMAC(msg_and_pubkey_bytes), tools.to_HMAC(msgtype_msg_pubkey_bytes)) )
             return packb(msgtype_msg_pubkey_bytes)
+
         except:
             return None
 
@@ -3003,17 +2945,17 @@ if __name__ == "__main__":
     #ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"1"], ["test2"]) # ptx2 is None #TODO toValidate
     time.sleep(1)
     ##ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
-    ##assert ptx1 != ptx2 #todo assert duplicates in ptx + verify wallet pending?
+    ##assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
     ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
-    msg_list = [ptx1, ptx2] #[ptx1, ptx2] # Negative test for ptx2 = None + TODO check for None msg
-    #msg_list = [ptx1, ptx1]
-    ##msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
+    ##msg_list = [ptx1, ptx2] #[ptx1, ptx2] [ptx1, ptx1] # Negative test for ptx2 = None + TODO check for None msg
+    #msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
+    msg_list = [tools.to_HMAC(ptx1), tools.to_HMAC(ptx2)]
     print("*****1st BLOCK validMsg - with INVALID TX inside*****")
     block_msg = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.BLOCK_MSG.value,
                  '1', tools.Block.getLastBlockId().encode(),
                 msg_list, [b"ToDo_VerifyMinerSigs_turns_and_amounts"], tools.utc_timestamp_b())
     bmsg = tools.WALLET.signMsg(block_msg, gSK, gVK._key)
-    tools.sendMsgZmqReq(bmsg, 'localhost', tools.Node.PORT_REP)
+    ##tools.sendMsgZmqReq(bmsg, 'localhost', tools.Node.PORT_REP)
 
     verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg  as p where p.signed_msg_hash not in (select signed_msg_hash from v1_verified_msg) order by msg_priority desc, node_date asc") #where node_verified='0'
     # verify_q = tools.SERVICE_DB.queryServiceDB(
@@ -3031,9 +2973,11 @@ if __name__ == "__main__":
     # #print(pmsg)
     # sys.exit(0)
 
-    tools.Node.verifySdbMsgTask()
+    #tools.Node.verifySdbMsgTask()
 
-    time.sleep(30)
+    time.sleep(10)
+    tools.sendMsgZmqReq(bmsg, 'localhost', tools.Node.PORT_REP)
+    time.sleep(10)
     #tools.Node.TASKS.verifySdbMsg()
     tools.Node.putQ(lambda: int("a"))
     #tools.Node.TASKS.deleteSdbMsqQ
@@ -3044,7 +2988,7 @@ if __name__ == "__main__":
     #     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
     #print("LastBlockHash: ", tools.Block.getLastBlockId())
-    exit(0)
+    sys.exit(0)
 
 
     ##########################################
