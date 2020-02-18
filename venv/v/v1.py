@@ -2107,6 +2107,11 @@ class Node():
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
                                     continue
 
+                                #todo duplicate input msgs
+                                # if len(ublock[4]) == len(set(ublock[4])):
+                                #     raise Exception("Duplicate inputs msgs in Block")
+                                assert len(ublock[4]) == len(set(ublock[4]))
+
                                 # complete msgs in blocks
                                 msg_list = [unpackb(msg) for msg in ublock[4]]
                                 for msg in msg_list:
@@ -2998,9 +3003,10 @@ if __name__ == "__main__":
     #ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"1"], ["test2"]) # ptx2 is None #TODO toValidate
     time.sleep(1)
     ##ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
-    ##assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
+    ##assert ptx1 != ptx2 #todo assert duplicates in ptx + verify wallet pending?
     ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
     msg_list = [ptx1, ptx2] #[ptx1, ptx2] # Negative test for ptx2 = None + TODO check for None msg
+    #msg_list = [ptx1, ptx1]
     ##msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
     print("*****1st BLOCK validMsg - with INVALID TX inside*****")
     block_msg = (tools.MsgType.Type.VERSION.value, tools.MsgType.Type.BLOCK_MSG.value,
