@@ -82,7 +82,7 @@ class Db():
             return _db.get(bin_key) ##bytes(_db.get(bin_key)) #bytes(_db.Get(bin_key))
         except Exception as ex:
             print(ex)
-            return None
+            return ex#None
 
 
 
@@ -118,7 +118,7 @@ class Db():
                 return False
             return True
         except Exception as ex:
-            return False
+            return ex#False
 
 
     def getDbRec(self, msg_hash, db_path = None):
@@ -132,7 +132,7 @@ class Db():
                 return value #self.decodeMsg(unpackb(unpackb(value)[0]))
             return None
         except Exception as ex:
-            return None
+            return ex#None
 
 
 DB = Db(NODE_DB)
@@ -142,7 +142,7 @@ def query_leveldb_key():
     key = request.query_string.decode().split("key=")[1] or None #request.args.get('key') #.encode()
     print('key"%s"' % key)
     res = DB.getDbKey(key)
-    resp = "Key %s NOT EXIST" % key if res is None else "Key: %s, Value: %s" %(key,unpackb(res))
+    resp = "Key %s NOT EXIST" % key if res is None else "Key: %s, Value: %s" % (key, unpackb(res)) ##(res if res is IOError else unpackb(res))) ##(key,unpackb(res))
     return resp
 
 @app.route('/dbq', methods=['GET', 'POST'])

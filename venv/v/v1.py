@@ -453,6 +453,7 @@ class Network():
        socket.connect("tcp://%s:%s" % (host, port))
        socket.send(bin_msg)
        response = socket.recv_string()
+       print("sendMsgZmqReq: ", tools.to_HMAC(bin_msg))
        print('ZMQ REQ response: ', response)
        if 'OK:'.upper() in response.upper():
            return True
@@ -613,7 +614,8 @@ class Transaction():
                 else:
                     decoded_msg += (f,)
             return decoded_msg
-        except:
+        except Exception as ex:
+            print("Exception decodeMsg: %s %s" % (ex.__traceback__.tb_lineno, ex))
             return None
        #tuple(unpackb(packb(msg_with_bin_values))) == msg_with_bin_values
        #((packb(str(decoded_msg[5][0]))))
@@ -670,7 +672,7 @@ class Transaction():
             return False
         try:
             pk = unpackb(bin_msg)[1] #validate correct packaging
-            return tools.isWalletExist(bin_msg)
+            return tools.isDbWalletExist(bin_msg)
         except:
             print('ERROR: Failed to unpack Public/Verifying Key')
             return False
@@ -1220,7 +1222,7 @@ class Block():
             print("INSERT +PTX TRANSACTION: %s" % (tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash))
             tools.insertDbKey(tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash, block_id)
             print("INSERT +PTX TO WALLET: %s" % (tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash))
-            tools.insertTxsToWallets(genesis_tx, tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash, block_id) #wallets update TODO state
+            tools.insertTxsToDbWallets(genesis_tx, tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash, block_id) #wallets update TODO state
             #Next Block Marked by CTX
             # print("INSERT -PTX SPENT TRANSACTION: %s" % (tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash))
             # tools.insertDbKey(tools.MsgType.Type.SPENT_TX.value.decode() + g_tx_hash, block_id)  # SPENT DOUBLE check
@@ -2037,6 +2039,7 @@ class Node():
                                 # complete msgs in blocks
                                 msg_list = ublock[4] #[unpackb(msg) for msg in ublock[4]] #ublock[4]#
                                 print('block_msg_list after submit' , msg_list)
+                                block_txs = {}
                                 for msg in msg_list:
                                     #msg_type = msg[0]
                                     #msg_bin, msg_sig = msg[1]
@@ -2079,15 +2082,32 @@ class Node():
                                         #TODO to continue #[umsg[itx] for itx in range(len(umsg)) if itx % 2 != 0]
                                         #print("block_msg PTX list %s %s" % ("block_id?", block_ptx_hashes))
 
-                                        ubmsg = unpackb(sdb_verified_msg[0][1])
-                                        #print("sdb_verified_msg:\n%s\n", sdb_verified_msg)
-                                        ptx_hash = sdb_verified_msg[0][0]
-                                        print("ptx_hash: %s , signed_msg_hash: %s" % (ptx_hash, signed_msg_hash))
-                                        ctxs = [unpackb(itx) for itx in ubmsg[2]]
-                                        itxs = list(set([i.decode() for i in [itx[2] for itx in ctxs ] for i in i]))
-                                        itx_assets = [itx[4] for itx in ctxs]
-                                        itx_amounts = [itx[5].decode() for itx in ctxs]
-                                        print("ITX list", itxs) #%s %s" % ("block_id?", block_ptx_hashes))
+                                        msg_type = sdb_verified_msg[0][3]
+                                        if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
+                                            ubmsg = unpackb(sdb_verified_msg[0][1])
+                                            #print("sdb_verified_msg:\n%s\n", sdb_verified_msg)
+                                            ptx_hash = sdb_verified_msg[0][0]
+                                            print("ptx_hash: %s , signed_msg_hash: %s" % (ptx_hash, signed_msg_hash))
+                                            ctxs = [unpackb(itx) for itx in ubmsg[2]]
+                                            itxs = list(set([i.decode() for i in [itx[2] for itx in ctxs ] for i in i]))
+                                            itx_assets = [itx[4] for itx in ctxs]
+                                            itx_amounts = [itx[5].decode() for itx in ctxs]
+                                            print("ITX list", itxs) #%s %s" % ("block_id?", block_ptx_hashes))
+                                            ptx_assets = list(set([itx[4] for itx in ctxs]))
+                                            wallet_id = "W" + tools.to_HMAC(sdb_verified_msg[0][2])
+                                            if not wallet_id in block_txs.keys():
+                                                block_txs[wallet_id] = {"assets": set(), "amounts": []}
+                                            for a in ptx_assets:
+                                                if a not in block_txs[wallet_id]["assets"]:
+                                                    block_txs[wallet_id]["assets"].add(a)
+                                                    #TODO +fees sum([Decimal(itx[5].decode()) + Decimal(itx[6].decode())  for itx in ctxs if itx[4] == a])
+                                                ptx_asset_amounts = sum([Decimal(itx[5].decode())  for itx in ctxs if itx[4] == a])#sum([Decimal(itx[5].decode()) for itx in ctxs if itx[4] == a])
+                                                block_txs[wallet_id]["amounts"].append(ptx_asset_amounts)
+
+                                #TODO assert keepChange
+                                print("block_txs: \n", block_txs) #todo msgs, contracts, icos..
+                                            #ua = tools.getDbWallet(wallet_id) #tools.getLocalWalletUnspentAssets(wallet_id)
+                                            #print("Wallet %s Unspent Amounts \n%s" % (wallet_id, ua))
 
 
                             elif m[3] == tools.MsgType.Type.PARENT_TX_MSG.value:
@@ -2158,19 +2178,90 @@ class Node():
         sleep(1)
 
 
-    def sendPtx(self, senderSeed, assets, amounts, to_addrs):
+    def appendPendingPtxToLocalWallet(self, sender_wallet_id, msg_id, ptx):
+        try:
+            print(sender_wallet_id)
+            wallet_data = unpackb(tools.getLocalWallet(sender_wallet_id))
+            assert not wallet_data is None
+            print("local_wallet_data %s %s: " % (sender_wallet_id, wallet_data))
+            wallet_unspent_amounts = [{asset: sum([Decimal(inp[1].decode())
+                                     for inp in
+                                     wallet_data[b"assets"][asset][b"inputs"]]) -
+                                     sum([Decimal(inp[1].decode())
+                                     for inp in
+                                     wallet_data[b"assets"][asset][b"outputs"]]) -
+                                     sum([Decimal(inp[1].decode())
+                                     for inp in wallet_data[b"assets"][asset][b"outputs_pending"]]) }
+                                     for asset in wallet_data[b"assets"]]
+            #todo assert negative value doesnt exist in unspents + notify
+            print("wallet_unspent_amounts", wallet_unspent_amounts)
+            ptx_in = msg_id
+            ptx_ctxs = [unpackb(itx) for itx in ptx[2]]
+            ctxs_outs = [utx for utx in ptx[7]]  #todo recalc
+            ctxs_assets = [itx[4] for itx in ptx_ctxs]
+            ctxs_amounts = [Decimal(itx[5].decode()) for itx in ptx_ctxs]
+            ctxs_fees = [Decimal(itx[6].decode()) for itx in ptx_ctxs]
+            ptx_fee = Decimal(ptx[6].decode())
+            for i in range(len(ctxs_assets)):
+                asset = ctxs_assets[i]
+                amounts_and_fees = tools.dec2b(ctxs_amounts[i] + ctxs_fees[i])
+                print("ctx asset: ", asset)
+                wallet_data[b"assets"][asset][b"outputs_pending"].append([ctxs_outs[i], amounts_and_fees, ptx_in])
+                total_pending = sum([(Decimal(out[1].decode())) for
+                                     out in wallet_data[b"assets"][asset][b"outputs_pending"]])
+                unspent_amount = [unspent_amount for unspent_amount in wallet_unspent_amounts if asset in unspent_amount.keys()]
+                asset_unspent_amount = unspent_amount[0][asset] if len(unspent_amount) > 0 else 0
+                if total_pending > asset_unspent_amount:
+                    print("Outputs(%s) exceeds inputs(%s) for asset %s in ptx %s " % (total_pending, asset_unspent_amount, asset, ptx_in))
+                    return False
+
+            #tools.WALLET.wallet_path
+            wallet_path = os.path.join(tools.WALLET.path, sender_wallet_id + '.wallet')
+            with open(wallet_path, "wb") as wallet:
+                 wallet.write(packb(wallet_data))
+                 print("wallet updated: ", wallet_data)
+            return True
+        except Exception as ex:
+            print("Exception appendPendingPtxToLocalWallet: %s %s" % (ex.__traceback__.tb_lineno, ex))
+            return False
+
+
+    def signAndSendPtx(self, sk=None, vk=None, ptx=None):
+        assert not sk is None and not vk is None and not ptx is None #to rem
+        if ptx is None:
+            return None
+        smsg = tools.WALLET.signMsg(ptx, sk, vk)
+        assert not smsg is None and not smsg[0] is None #todo rem
+        if smsg[0] is None:
+            return None
+        res = tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
+##        assert res
+        ptx_id = "+" + smsg[1]
+        sender_wallet_id = "W" + tools.to_HMAC(vk)
+        isLocalWalletUpdated  = self.appendPendingPtxToLocalWallet(sender_wallet_id, ptx_id, ptx)  if res else None
+        return smsg[3] if isLocalWalletUpdated else None
+
+
+    def createAndSendPtx(self, senderSeed, assets, amounts, to_addrs):
         sk, vk = tools.getKeysFromSeed(senderSeed)
         to = [tools.to_HMAC(s) for s in to_addrs]
         ptx = tools.WALLET.createPtx(vk._key, assets, amounts, to)
-        #if ptx is None:
-        #    return None
+#        assert not ptx is None  #todo rem
+        if ptx is None:
+            return None
         smsg = tools.WALLET.signMsg(ptx, sk, vk._key) #signMsg prepends msgType
-
+        assert not smsg is None and not smsg[0] is None #todo rem
         if smsg[0] is None:
             return None
-        tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
-        return smsg[3] #tools.to_HMAC((packb(ptx), vk._key)) #ptx_id #smsg[1:] #get rid of msgtype
-
+        res = tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
+        print("sendMsgZmqReq res:", res)
+        assert res
+        ptx_id = "+" + smsg[1]
+        sender_wallet_id = "W" + tools.to_HMAC(vk._key)
+        isLocalWalletUpdated  = self.appendPendingPtxToLocalWallet(sender_wallet_id, ptx_id, ptx) if res else None
+        ret = smsg[3] if isLocalWalletUpdated else None
+        return ret
+    
 
     def isNodePenaltied(self):
         #todo config treshold - for penalty rewards
@@ -2187,6 +2278,7 @@ class Node():
 
 
 class Wallet():
+    wallet_path =  os.path.join(os.path.dirname(os.path.abspath(__file__)) , "..", "WALLETS/")
     def __init__(self, version='1', pub_addr=None, sig_type='1/1', multi_sig_pubkeys=[], assets=[], msgs=[], contracts=[]):
         self.pub_addr = pub_addr
         self.path = os.path.join(ROOT_DIR, "..", "WALLETS")
@@ -2240,7 +2332,7 @@ class Wallet():
         if not os.path.exists(dir):
             os.makedirs(dir)
 
-    def isWalletExist(self, bin_msg):
+    def isDbWalletExist(self, bin_msg):
         try:
             pk = unpackb(bin_msg)[1]
             if not tools.isDBvalue(tools.Crypto.to_HMAC(pk)):
@@ -2258,13 +2350,14 @@ class Wallet():
         pass  # used
 
 
+    #TODO sync db&local wallets
     def createWallet(self, pubkey_hash_id):
         print("CreateWallet pubkey_hash_id: ", pubkey_hash_id)
         wallet_id = tools.MsgType.Type.WALLET.value.decode() + pubkey_hash_id #tools.MsgType.Type.WALLET.value.decode() + pubkey_hash_id
         print("Wallet ID: ", wallet_id)
         if tools.getDbKey(wallet_id) is None:
             tools.insertDbKey(wallet_id, {'version': tools.version, 'assets': \
-                {tools.config.MAIN_COIN: {'inputs': [], 'outputs': []}}}, \
+                {tools.config.MAIN_COIN: {'inputs': [], 'outputs': [], 'outputs_pending': []}}}, \
                  tools.DB.DB_PATH) #todo change '1' to meaningful coin name
         ##if not tools.isDBvalue(pubkey_hash_id):
         if tools.getDbKey(wallet_id) is None:
@@ -2273,7 +2366,7 @@ class Wallet():
 
 
     #todo to continue after genesis
-    def updateWallets(self, blk_msg): #block_msg = unpackb(block_msg_bin)
+    def updateDbWallets(self, blk_msg): #block_msg = unpackb(block_msg_bin)
         insert_q = Queue.queue(-1)
         block_num = blk_msg[tools.Block.BLOCK_MSG_FIELD_INDEX.get("block_hash")]
         inputs_idx = tools.Block.BLOCK_MSG_FIELD_INDEX.get("input_msgs")
@@ -2285,14 +2378,14 @@ class Wallet():
         return True
 
 
-    def updateWallet(self, wallet_id, msg_hash, decoded_msg): #wallet_id = hash(pub_key)
-        if not tools.isDBvalue(wallet_id):
-            isWalletExist = tools.createWallet(wallet_id)
-            if not isWalletExist:
-                return False
-            else:
-                tools.insertDataToWallet(wallet_id, msg_hash, decoded_msg)
-        pass
+    # def updateWallet(self, wallet_id, msg_hash, decoded_msg): #wallet_id = hash(pub_key)
+    #     if not tools.isDBvalue(wallet_id):
+    #         isWalletExist = tools.createWallet(wallet_id)
+    #         if not isWalletExist:
+    #             return False
+    #         else:
+    #             tools.insertDataToWallet(wallet_id, msg_hash, decoded_msg)
+    #     pass
 
 
     def insertDataToWallet(self, msg_hash, decoded_msg):
@@ -2364,7 +2457,7 @@ class Wallet():
 
 
     #after genesis and vlidation for db, assets, amounts, unspent for sender/reciever
-    def insertTxsToWallets(self, ptx_msg, ptx_hash, block_hash): #pub_addr, input_txs, asset_id, amount, inputs=[], outputs=[]):
+    def insertTxsToDbWallets(self, ptx_msg, ptx_hash, block_hash): #pub_addr, input_txs, asset_id, amount, inputs=[], outputs=[]):
         # #TODO if walletNotExist add createWalletFee to MinersPool
         #TODo if sdb valid_verified(msg)->persist/remove in updateWallet? - after genesis
         #ptx, pub_k = tools.getDbRec(ptx_msg_hash) #TODO getFromSDB(isVerifiedMsgAndAmount) - after genesis
@@ -2447,6 +2540,7 @@ class Wallet():
             #tools.printStackTrace(ex)
             return False
 
+
     def getDbWallet(self, pub_addr): #TODO at least same result from 3 random miners /byVerify for expected StateHash + report minerForPenalty
         wallet = tools.getDbRec(pub_addr)
         if wallet is None:
@@ -2470,9 +2564,19 @@ class Wallet():
        #pass #TODO
 
 
-    def decodeLocalWallet(self, wallet_bin_data, pwd):
+    def decodeLocalWallet(self, wallet_bin_data, pwd="TODO"):
        return wallet_bin_data #TODO
        #pass
+
+
+    def getLocalWallet(self, wallet_id):
+        try:
+            wallet_path = os.path.join(tools.WALLET.wallet_path + "/", wallet_id + '.wallet')
+            with open(wallet_path, "rb") as wallet:
+                return self.decodeLocalWallet(wallet.read())
+        except Exception as ex:
+            print("Exception getLocalWallet %s %s" % (ex, ex.__traceback__.tb_lineno))
+            return None
 
 
     def saveLocalWallet(self, pub_addr, bin_data): #todo pwd protection and encoding
@@ -2513,24 +2617,29 @@ class Wallet():
                     unspent_assets = {}
                     for a in wallet_data[b"assets"]:
                         utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][a][b"inputs"]])
+                        #remove pending onSync DB and local wallets
+                        utxos_pending_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs_pending"]])
                         utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs"]])
                         #TODO total_otput+fees
-                        if utxos_total > utxis_total: #or utxos_total == 0 or utxis_total == 0:
+                        print("wallet_id: %s - inputs: %s, outputs: %s, pending: %s" % (wallet_id, utxis_total, utxos_total, utxos_pending_total))
+                        if utxos_total + utxos_pending_total  > utxis_total: #or utxos_total == 0 or utxis_total == 0:
                             return None
                         else:
                             #utxis = set()
                             #[utxis.add(inps[0]) for inps in wallet_data[b"assets"][a][b"inputs"]]
                             utxis_amounts = [(inps[0], inps[1]) for inps in wallet_data[b"assets"][a][b"inputs"]]
-                            unspent_assets[a] = (utxis_total - utxos_total), utxis_amounts
+                            unspent_assets[a] = (utxis_total - utxos_total - utxos_pending_total), utxis_amounts
+                    print("unspent_assets: ", unspent_assets)
                     return unspent_assets
                 else:
                     utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][asset_type][b"inputs"]])
                     utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][asset_type][b"outputs"]])
-                    if utxos_total >= utxis_total:
+                    utxos_pending_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs_pending"]])
+                    if utxos_total + utxos_pending_total > utxis_total:
                         return None
                     else:
                         utxis_amounts = [(inps[0], inps[1]) for inps in wallet_data[b"assets"][a][b"inputs"]]
-                        return (utxis_total - utxos_total), utxis_amounts
+                        return (utxis_total - utxos_total - utxos_pending_total), utxis_amounts
 
         except Exception as ex:
             print('Exception getLocalWalletUnspentAssets: %s %s' % (ex.__traceback__.tb_lineno, ex))
@@ -2564,9 +2673,10 @@ class Wallet():
                 tx_asset_amount = sum([Decimal(amounts[i].decode()) for i in range(len(amounts)) if asset_types[i] == a])
                 total_service_fee = Decimal(service_fee.decode()) * len([c for c in asset_types if c==a])
                 if (tx_asset_amount + total_service_fee) > wallet_asset_amount:
+                    print("TX outputs > inputs")
                     return None
                 total_wallet_asset_amount[a] = wallet_asset_amount
-                change_wallet_asset_amount[a] = wallet_asset_amount
+                change_wallet_asset_amount[a] = wallet_asset_amount - (tx_asset_amount + total_service_fee)
 
 
             for i in range(len(asset_types)): #Distribute wallet inputs+service fees per asset
@@ -2582,7 +2692,7 @@ class Wallet():
                     included_itxs_amount += itx_amount
                     if included_itxs_amount >= ctx_amount:
                         asset_itxs.append(included_itxs)
-                        change_wallet_asset_amount[asset_types[i]] -= ctx_amount
+                        #change_wallet_asset_amount[asset_types[i]] -= ctx_amount
                         change_wallet_asset_itx[asset_types[i]] = itx
                         if change_wallet_asset_amount[asset_types[i]] < 0:
                             return None
@@ -2600,21 +2710,27 @@ class Wallet():
                 ctx = packb((tools.MsgType.Type.VERSION.value, tools.MsgType.Type.PARENT_TX_MSG.value.decode(), asset_itxs[n], to_addrs[n], asset_types[n], amounts[n], service_fee, utc_ts))
                 ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ctx, pub_key)))
                 ctxs.append(ctx) #(ctx[0][:-1]) #exclude pub_key, it will be taken from the parentTx -> ptx
-            for n in range(len(assetsU)): # keep change
+            for n in range(len(assetsU)): # keep change #TODO assert in block
                 asset = list(assetsU)[n]
                 if asset in change_wallet_asset_amount: #skip exceptions
                     change_amount = change_wallet_asset_amount[asset]
-                    if change_amount - Decimal(service_fee.decode()) > 0:
+                    change_fee = Decimal(service_fee.decode())
+                    if change_amount - change_fee > 0:
                         ctx = packb((tools.MsgType.Type.VERSION.value.decode(), tools.MsgType.Type.PARENT_TX_MSG.value.decode(), [change_wallet_asset_itx[asset]],
-                               pub_addr, asset, tools.dec2b(change_amount), service_fee, utc_ts))
+                               pub_addr, asset, tools.dec2b(change_amount-change_fee), service_fee, utc_ts))
                         ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ctx, pub_key)))
                         ctxs.append(ctx) #(ctx[:-1]) #exclude pub_key, it will be taken from the parentTx -> ptx
-                        amounts.append(tools.dec2b(change_amount))
+                        change_amount -= change_fee
+                        amounts.append(tools.dec2b(change_amount - change_fee))
                         asset_types.append(asset)
                         to_addrs.append(pub_addr)
+                        change_wallet_asset_amount[asset] -= change_fee
 
-            ptx = (tools.MsgType.Type.VERSION.value.decode(), tools.MsgType.Type.PARENT_TX_MSG.value.decode(), ctxs,
-                   to_addrs, asset_types, amounts, tools.dec2b(Decimal(service_fee.decode()) * len(ctxs)), ctxs_outputs, utc_ts, pub_key)
+            ptx = (tools.MsgType.Type.VERSION.value.decode(),
+                   tools.MsgType.Type.PARENT_TX_MSG.value.decode(), ctxs,
+                   to_addrs, asset_types, amounts,
+                   tools.dec2b(Decimal(service_fee.decode()) * len(ctxs)),
+                   ctxs_outputs, utc_ts, pub_key)
             return ptx
         return None
 
@@ -2649,7 +2765,7 @@ class Wallet():
          return False
 
 
-    def updateWallet(self, pub_addr):
+    def updateDbWallet(self, pub_addr):
         pass
 
 
@@ -2963,21 +3079,23 @@ if __name__ == "__main__":
     vmsg = umsg[1][0]
     vk = VerifyKey(umsg[1][1])
     sig, msg = tools.verifyMsgSig(vmsg, vk._key)
-    isOk = tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
-    print("PTX is Accepted: %s\n" % isOk)
+    isOk = tools.signAndSendPtx(gSK2, gVK2._key, ptx) #tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
+    print("PTX is Accepted: %s\n" % (isOk if not isOk is None else None))
 
     #tools.persistPendingMsg(tools.to_HMAC(smsg), smsg, gVK2._key) #TODO to continue/fix + onCreateSdbFile chmod for insert folder: chmod -R 766 venv/service_db/DATA/
     #tools.insertDbTx(umsg) #dummy test TODO to continue/fix
     print("*****3 payments - DUPLICATE TX*****")
-    isOk = tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
-    print("PTX is Accepted: %s\n" % isOk)
+    isOk = tools.signAndSendPtx(gSK2, gVK2._key, ptx) # #tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
+    print("PTX is Accepted Duplicate signAndSendPtx: %s\n" % (isOk if not isOk is None else None))
 
-    ptx1 = tools.sendPtx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"])
+    ptx1 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"])
+    assert not ptx1 is None
     #ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"1"], ["test2"]) # ptx2 is None #TODO toValidate
     time.sleep(1)
     ##ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
     ##assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
-    ptx2 = tools.sendPtx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
+    ptx2 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
+    assert not ptx2 is None
     msg_list = [ptx1, ptx2] #[ptx1, ptx2] [ptx1, ptx1] # Negative test for ptx2 = None + TODO check for None msg
     #msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
     #msg_list = [tools.to_HMAC(ptx1), tools.to_HMAC(ptx2)]
@@ -3016,7 +3134,8 @@ if __name__ == "__main__":
                  msg_list, [b"ToDo_VerifyMinerSigs_turns_and_amounts"], tools.utc_timestamp_b())
     wmsg = tools.WALLET.signMsg(block_msg, gSK, gVK._key)
     assert not wmsg[0] is None
-    tools.sendMsgZmqReq(wmsg[0], 'localhost', tools.Node.PORT_REP)
+    isOk = tools.sendMsgZmqReq(wmsg[0], 'localhost', tools.Node.PORT_REP)
+    assert isOk
     time.sleep(12)
     #tools.Node.TASKS.verifySdbMsg()
     tools.Node.putQ(lambda: int("a"))
@@ -3028,7 +3147,7 @@ if __name__ == "__main__":
     #     tools.sendMsgZmqReq(smsg, 'localhost', tools.Node.PORT_REP)
 
     #print("LastBlockHash: ", tools.Block.getLastBlockId())
-    time.sleep(600)
+    time.sleep(6000)
     sys.exit(0)
 
 
