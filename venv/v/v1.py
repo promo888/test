@@ -2026,8 +2026,9 @@ class Node():
                                 assert signed_msg_hash == tools.to_HMAC(block_bin[1])  # DON'T REMOVE [msg,sig] correct hmac validation
                                 nodeSig, blockMsg = tools.verifyMsgSig(block_bin[1][0], block_bin[1][1])
                                 ublock = unpackb(blockMsg)
-                                print("Duplicates found in Block = %s" % len(ublock[4]) == len(set(ublock[4])))
-                                if not nodeSig or None in ublock[4] or len(ublock[4]) != len(set(ublock[4])): #none or duplicate checks
+                                print("ublock: %s\n%s\n" % (ublock, [inp.decode() for inp in [m for m in ublock[4]]]))
+                                ##print("Duplicates found in Block = %s" % len(ublock[4]) == len(set(ublock[4])))
+                                if len(ublock) < 5 or not nodeSig or None in ublock[4] or len(ublock[4]) != len(set(ublock[4])): #none or duplicate checks
                                     # False in [tools.arePtxInputsValid(tx) for tx in ublock[2]]:
                                     print("BLOCK (%s) IS INVALID" % signed_msg_hash)
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
@@ -3088,15 +3089,16 @@ if __name__ == "__main__":
     isOk = tools.signAndSendPtx(gSK2, gVK2._key, ptx) # #tools.sendMsgZmqReq(smsg[0], 'localhost', tools.Node.PORT_REP)
     print("PTX is Accepted Duplicate signAndSendPtx: %s\n" % (isOk if not isOk is None else None))
 
-    ptx1 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"])
-    assert not ptx1 is None
+    ##ptx1 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"])
+    ##assert not ptx1 is None
+
     #ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"1"], ["test2"]) # ptx2 is None #TODO toValidate
     time.sleep(1)
     ##ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
     ##assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
-    ptx2 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
-    assert not ptx2 is None
-    msg_list = [ptx1, ptx2] #[ptx1, ptx2] [ptx1, ptx1] # Negative test for ptx2 = None + TODO check for None msg
+    ##ptx2 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
+    ##assert not ptx2 is None
+    msg_list = [ptx] ##[ptx1, ptx2] #[ptx1, ptx2] [ptx1, ptx1] # Negative test for ptx2 = None + TODO check for None msg
     #msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
     #msg_list = [tools.to_HMAC(ptx1), tools.to_HMAC(ptx2)]
     print("BLOCK_MSG_LIST before submit: ", msg_list)
