@@ -1092,19 +1092,22 @@ class Block():
 
 
     def saveLastBlockState(self, db_last_saved_block_hash):
+        if len(db_last_saved_block_hash) !=33:
+            return None
         with open("last_saved_block", "w") as last_block_id:
             #last_block_id.write(db_last_saved_block_hash)
-             last_block_id.write(json.dumps({db_last_saved_block_hash: self.getLastBlockNumber()+1}))
+             last_block_id.write(json.dumps({"block_hash": db_last_saved_block_hash, "block_id": self.getLastBlockNumber()+1}))
+        return True
 
 
     def getLastBlockId(self, hash_id=True):
         try:
             with open("last_saved_block", "r") as last_block_id:
-                block_id = json.loads(last_block_id.read())
-                if len(list(block_id.keys())[0]) == 33:
-                    if not hash_id: #return lastBlockNum
-                        return  block_id[list(block_id.keys())[0]]
-                    return list(block_id.keys())[0]#block_id
+                block = json.loads(last_block_id.read())
+                block_hash_id = block["block_hash"]
+                block_id = block["block_id"]
+                if len(block_hash_id) == 33:
+                    return block_hash_id
                 return None
         except:
             return None
@@ -1436,6 +1439,11 @@ class ServiceDb():
             err_msg = 'Exception on get serviceDbConnection to SqlLite NODE_SERVICE_DB: %s, %s' % (Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
             return None
+
+
+    def queryServiceDBkv(self, table, signed_msg_hash):
+        sql = "select * from %s where signed_msg_hash='%s'" % (table, signed_msg_hash)
+        return self.queryServiceDB(sql)
 
 
     def queryServiceDB(self, sql):
@@ -2026,89 +2034,112 @@ class Node():
                                 assert signed_msg_hash == tools.to_HMAC(block_bin[1])  # DON'T REMOVE [msg,sig] correct hmac validation
                                 nodeSig, blockMsg = tools.verifyMsgSig(block_bin[1][0], block_bin[1][1])
                                 ublock = unpackb(blockMsg)
-                                print("ublock: %s\n%s\n" % (ublock, [inp.decode() for inp in [m for m in ublock[4]]]))
+                                prev_block_hash = ublock[3]
+                                #print("ublock: %s\n%s\n" % (ublock, [unpackb(inp[2][2])[2] for inp in [m for m in ublock[4]]])) #[unpackb(inp[2][2])[2] for inp in [m for m in ublock[4]]] [inp[2] for inp in [m for m in ublock[4]]]
                                 ##print("Duplicates found in Block = %s" % len(ublock[4]) == len(set(ublock[4])))
-                                if len(ublock) < 5 or not nodeSig or None in ublock[4] or len(ublock[4]) != len(set(ublock[4])): #none or duplicate checks
+                                if not tools.isDBvalue(prev_block_hash) or \
+                                        tools.isDBvalue("B" + signed_msg_hash) \
+                                        or len(ublock) < 6 or not nodeSig: #or None in ([msg[2] for msg in ublock[4]]) or len(ublock[4]) != len(set(ublock[4])): #none or duplicate checks
                                     # False in [tools.arePtxInputsValid(tx) for tx in ublock[2]]:
                                     print("BLOCK (%s) IS INVALID" % signed_msg_hash)
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
                                     continue
 
-                                #todo assert prevBlock
+                                ptx_inputs = set()
+                                ptxs_count = len(ublock[4])
+                                for i in range(ptxs_count):
+                                    ctxs_count = len(ublock[4][i][2])
+                                    for k in range(ctxs_count):
+                                        ctx = unpackb(ublock[4][i][2][k])
+                                        print("ctx %s %s" % (k, ctx))
+                                        for j in range(len(ctx[2])):
+                                            ptx_inputs.add(ctx[2][j].decode())
+                                print("%s ptx_inputs: %s" % (len(ptx_inputs), ptx_inputs))
 
 
-                                # complete msgs in blocks
-                                msg_list = ublock[4] #[unpackb(msg) for msg in ublock[4]] #ublock[4]#
-                                print('block_msg_list after submit' , msg_list)
-                                block_txs = {}
-                                for msg in msg_list:
-                                    #msg_type = msg[0]
-                                    #msg_bin, msg_sig = msg[1]
-                                    # #print(tools.verifyMsgSig(msg_bin, msg_sig))
-                                    # isVerified, verified_msg_bin = tools.verifyMsgSig(msg_bin, msg_sig)
-                                    # if not isVerified:
-                                    #     raise Exception("Invalid Msg Sig in Block")
-                                    # unpacked_block_msg = unpackb(verified_msg_bin)
-                                    # print('verified_unpacked_block_msg: ', unpacked_block_msg)
-                                    # print('msg_type: ', msg_type)
-                                    # if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
-                                    #     msg_itxs_valid = tools.arePtxInputsValid(unpacked_block_msg)
-                                    #     print('areMsgItxValid:', msg_itxs_valid == False, msg_itxs_valid)
-                                    #     if not msg_itxs_valid:
-                                    #         raise Exception("Invalid Msg Inputs in Block")
-                                    #     print("block msg inputs:\n", [msg for msg in unpacked_block_msg[2]])
+                                for ptx_input in ptx_inputs:
+                                    if not tools.isDBvalue(ptx_input.encode()):
+                                        log_msg = "PTX %s is NOT found in DB" % (ptx_input)
+                                        print(log_msg)
+                                        print("TODO getPtxWithHighestPriority+reschedule NextBlockPersist")
+                                        raise Exception(log_msg) #exit presist/remove - leave data until downloaded
 
 
-                                    sdb_verified_msg = tools.SERVICE_DB.queryServiceDB(
-                                        "select * from v1_verified_msg where signed_msg_hash='%s'" % msg.decode())
-                                    if sdb_verified_msg is None or len(sdb_verified_msg) == 0 :
-                                        sdb_pending_msg = tools.SERVICE_DB.queryServiceDB(
-                                            "select * from v1_pending_msg where signed_msg_hash='%s'" % msg.decode())
-                                    #print("verify msg %s in sdb - verified, pending: %s, %s" % (msg, len(sdb_verified_msg), len(sdb_pending_msg)))
-                                        if sdb_pending_msg is None or len(sdb_pending_msg) == 0:
-                                            print("%s msg NOT FOUND in SDB v1_pending_msg" % msg)
-                                            #pass
-                                            #todo getMsgFromNode(signed_msg_hash) + Verify
-                                            #continue (Don't delete prior retrieve & verify)
-                                    else:
-                                        # b_msg = unpackb(sdb_verified_msg[0][1])
-                                        # b_key = sdb_verified_msg[0][2] ##wmsg[-1]
-                                        # sig, msg = tools.verifyMsgSig(b_msg[0], b_key)
-                                        # #TODO verify amounts in ptx+here+delete verified+ indexSdb for another retrieval
-                                        # assert sig
-                                        # umsg =  unpackb(msg) ##wmsg
-                                        # #b_itx_list = list(set([itx for itx in [itx[2] for itx in umsg[2]]]))
-                                        # block_ptx_hashes = [umsg[itx] for itx in range(len(umsg)) if itx % 2 != 0]
-                                        #list(set([itx for itx in umsg[4]]))
-                                        #TODO to continue #[umsg[itx] for itx in range(len(umsg)) if itx % 2 != 0]
-                                        #print("block_msg PTX list %s %s" % ("block_id?", block_ptx_hashes))
+                                #TODO to continue reTask download missing [ctxs, ptxs , blocks)
 
-                                        msg_type = sdb_verified_msg[0][3]
-                                        if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
-                                            ubmsg = unpackb(sdb_verified_msg[0][1])
-                                            #print("sdb_verified_msg:\n%s\n", sdb_verified_msg)
-                                            ptx_hash = sdb_verified_msg[0][0]
-                                            print("ptx_hash: %s , signed_msg_hash: %s" % (ptx_hash, signed_msg_hash))
-                                            ctxs = [unpackb(itx) for itx in ubmsg[2]]
-                                            itxs = list(set([i.decode() for i in [itx[2] for itx in ctxs ] for i in i]))
-                                            itx_assets = [itx[4] for itx in ctxs]
-                                            itx_amounts = [itx[5].decode() for itx in ctxs]
-                                            print("ITX list", itxs) #%s %s" % ("block_id?", block_ptx_hashes))
-                                            ptx_assets = list(set([itx[4] for itx in ctxs]))
-                                            wallet_id = "W" + tools.to_HMAC(sdb_verified_msg[0][2])
-                                            if not wallet_id in block_txs.keys():
-                                                block_txs[wallet_id] = {"assets": set(), "amounts": []}
-                                            for a in ptx_assets:
-                                                if a not in block_txs[wallet_id]["assets"]:
-                                                    block_txs[wallet_id]["assets"].add(a)
-                                                    #TODO +fees sum([Decimal(itx[5].decode()) + Decimal(itx[6].decode())  for itx in ctxs if itx[4] == a])
-                                                ptx_asset_amounts = sum([Decimal(itx[5].decode())  for itx in ctxs if itx[4] == a])#sum([Decimal(itx[5].decode()) for itx in ctxs if itx[4] == a])
-                                                block_txs[wallet_id]["amounts"].append(ptx_asset_amounts)
 
-                                #TODO assert keepChange
-                                print("block_txs: \n", block_txs) #todo msgs, contracts, icos..
-                                            #ua = tools.getDbWallet(wallet_id) #tools.getLocalWalletUnspentAssets(wallet_id)
-                                            #print("Wallet %s Unspent Amounts \n%s" % (wallet_id, ua))
+                                # # complete msgs in blocks
+                                # msg_list = ublock[4] #[unpackb(msg) for msg in ublock[4]] #ublock[4]#
+                                # print('block_msg_list after submit' , msg_list)
+                                # block_txs = {}
+                                # for msg in msg_list:
+                                #     #msg_type = msg[0]
+                                #     #msg_bin, msg_sig = msg[1]
+                                #     # #print(tools.verifyMsgSig(msg_bin, msg_sig))
+                                #     # isVerified, verified_msg_bin = tools.verifyMsgSig(msg_bin, msg_sig)
+                                #     # if not isVerified:
+                                #     #     raise Exception("Invalid Msg Sig in Block")
+                                #     # unpacked_block_msg = unpackb(verified_msg_bin)
+                                #     # print('verified_unpacked_block_msg: ', unpacked_block_msg)
+                                #     # print('msg_type: ', msg_type)
+                                #     # if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
+                                #     #     msg_itxs_valid = tools.arePtxInputsValid(unpacked_block_msg)
+                                #     #     print('areMsgItxValid:', msg_itxs_valid == False, msg_itxs_valid)
+                                #     #     if not msg_itxs_valid:
+                                #     #         raise Exception("Invalid Msg Inputs in Block")
+                                #     #     print("block msg inputs:\n", [msg for msg in unpacked_block_msg[2]])
+                                #
+                                #
+                                #     sdb_verified_msg = tools.SERVICE_DB.queryServiceDB(
+                                #         "select * from v1_verified_msg where signed_msg_hash='%s'" % msg.decode())
+                                #     if sdb_verified_msg is None or len(sdb_verified_msg) == 0 :
+                                #         sdb_pending_msg = tools.SERVICE_DB.queryServiceDB(
+                                #             "select * from v1_pending_msg where signed_msg_hash='%s'" % msg.decode())
+                                #     #print("verify msg %s in sdb - verified, pending: %s, %s" % (msg, len(sdb_verified_msg), len(sdb_pending_msg)))
+                                #         if sdb_pending_msg is None or len(sdb_pending_msg) == 0:
+                                #             print("%s msg NOT FOUND in SDB v1_pending_msg" % msg)
+                                #             #pass
+                                #             #todo getMsgFromNode(signed_msg_hash) + Verify
+                                #             #continue (Don't delete prior retrieve & verify)
+                                #     else:
+                                #         # b_msg = unpackb(sdb_verified_msg[0][1])
+                                #         # b_key = sdb_verified_msg[0][2] ##wmsg[-1]
+                                #         # sig, msg = tools.verifyMsgSig(b_msg[0], b_key)
+                                #         # #TODO verify amounts in ptx+here+delete verified+ indexSdb for another retrieval
+                                #         # assert sig
+                                #         # umsg =  unpackb(msg) ##wmsg
+                                #         # #b_itx_list = list(set([itx for itx in [itx[2] for itx in umsg[2]]]))
+                                #         # block_ptx_hashes = [umsg[itx] for itx in range(len(umsg)) if itx % 2 != 0]
+                                #         #list(set([itx for itx in umsg[4]]))
+                                #         #TODO to continue #[umsg[itx] for itx in range(len(umsg)) if itx % 2 != 0]
+                                #         #print("block_msg PTX list %s %s" % ("block_id?", block_ptx_hashes))
+                                #
+                                #         msg_type = sdb_verified_msg[0][3]
+                                #         if msg_type == tools.MsgType.Type.PARENT_TX_MSG.value:
+                                #             ubmsg = unpackb(sdb_verified_msg[0][1])
+                                #             #print("sdb_verified_msg:\n%s\n", sdb_verified_msg)
+                                #             ptx_hash = sdb_verified_msg[0][0]
+                                #             print("ptx_hash: %s , signed_msg_hash: %s" % (ptx_hash, signed_msg_hash))
+                                #             ctxs = [unpackb(itx) for itx in ubmsg[2]]
+                                #             itxs = list(set([i.decode() for i in [itx[2] for itx in ctxs ] for i in i]))
+                                #             itx_assets = [itx[4] for itx in ctxs]
+                                #             itx_amounts = [itx[5].decode() for itx in ctxs]
+                                #             print("ITX list", itxs) #%s %s" % ("block_id?", block_ptx_hashes))
+                                #             ptx_assets = list(set([itx[4] for itx in ctxs]))
+                                #             wallet_id = "W" + tools.to_HMAC(sdb_verified_msg[0][2])
+                                #             if not wallet_id in block_txs.keys():
+                                #                 block_txs[wallet_id] = {"assets": set(), "amounts": []}
+                                #             for a in ptx_assets:
+                                #                 if a not in block_txs[wallet_id]["assets"]:
+                                #                     block_txs[wallet_id]["assets"].add(a)
+                                #                     #TODO +fees sum([Decimal(itx[5].decode()) + Decimal(itx[6].decode())  for itx in ctxs if itx[4] == a])
+                                #                 ptx_asset_amounts = sum([Decimal(itx[5].decode())  for itx in ctxs if itx[4] == a])#sum([Decimal(itx[5].decode()) for itx in ctxs if itx[4] == a])
+                                #                 block_txs[wallet_id]["amounts"].append(ptx_asset_amounts)
+                                #
+                                # #TODO? assert keepChange
+                                # print("block_txs: \n", block_txs) #todo msgs, contracts, icos..
+                                #             #ua = tools.getDbWallet(wallet_id) #tools.getLocalWalletUnspentAssets(wallet_id)
+                                #             #print("Wallet %s Unspent Amounts \n%s" % (wallet_id, ua))
 
 
                             elif m[3] == tools.MsgType.Type.PARENT_TX_MSG.value:
@@ -2718,13 +2749,13 @@ class Wallet():
                     change_fee = Decimal(service_fee.decode())
                     if change_amount - change_fee > 0:
                         ctx = packb((tools.MsgType.Type.VERSION.value.decode(), tools.MsgType.Type.PARENT_TX_MSG.value.decode(), [change_wallet_asset_itx[asset]],
-                               pub_addr, asset, tools.dec2b(change_amount-change_fee), service_fee, utc_ts))
+                                     "W" + pub_addr, asset, tools.dec2b(change_amount-change_fee), service_fee, utc_ts))
                         ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ctx, pub_key)))
                         ctxs.append(ctx) #(ctx[:-1]) #exclude pub_key, it will be taken from the parentTx -> ptx
                         change_amount -= change_fee
                         amounts.append(tools.dec2b(change_amount - change_fee))
                         asset_types.append(asset)
-                        to_addrs.append(pub_addr)
+                        to_addrs.append("W" + pub_addr)
                         change_wallet_asset_amount[asset] -= change_fee
 
             ptx = (tools.MsgType.Type.VERSION.value.decode(),
