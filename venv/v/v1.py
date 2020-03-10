@@ -1874,7 +1874,7 @@ class Node():
                 rep_msg = rep_socket.recv(1024)
                 # self.Q.put_nowait(rep_msg)
                 # rep_socket.send(b'OK:') #(rep_msg)
-
+                print("rep_msg_hash unwrapped: ", tools.to_HMAC((unpackb(rep_msg)[1][0], unpackb(rep_msg)[1][1])))
                 print('ZMQ REP request: {} bytes \n {}'.format(len(rep_msg), unpackb(rep_msg))) #TODO to continue msg&tx validation
                 umsg = unpackb(rep_msg)
                 msg_type = umsg[0]
@@ -2017,6 +2017,11 @@ class Node():
                     #time.sleep(10)
                     verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg as p where p.signed_msg_hash not in (select signed_msg_hash from v1_verified_msg) order by msg_priority desc, node_date asc") # where node_verified='0'
                     for m in verify_q:
+                        if tools.to_HMAC((unpackb(m[1])[1][0], unpackb(m[1])[1][1])) != m[0]:
+                            err_msg = "INVALID Hash Header" % m[0]
+                            print(err_msg)
+                            self.TASKS.deleteSdbInvalidMsqQ.add(m[0])
+                            continue
                         signed_msg_hash = m[0]
                         signed_msg = (unpackb(m[1])[1][0])
                         #signed_msg_hash = tools.to_HMAC(signed_msg)
