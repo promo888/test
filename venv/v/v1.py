@@ -2104,7 +2104,7 @@ class Node():
                                 # tools.Block.verified_block["inputs_list"] = set(ptx_inputs)
 
                                 #TODO to continue reTask download missing [ctxs, ptxs , blocks)
-                                print()
+                                #print()
 
 
                                 # # complete msgs in blocks
