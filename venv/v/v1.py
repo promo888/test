@@ -25,7 +25,6 @@ from threading import Timer, TIMEOUT_MAX, Condition
 from multiprocessing import Process #ToDo killPorts+watchdog
 from queue import Queue, PriorityQueue #, Condition
 import enum, math
-from sqlobject import *
 
 
 def debug_func(self, func):
@@ -249,7 +248,7 @@ class MsgPtx():
             self.pub_addr = tools.to_HMAC(self.pub_key)
             self.inputs_field_index = tools.Transaction.TX_MSG_FIELD_INDEX.get("input_txs")
             self.inputs = [e[self.inputs_field_index] for e in umsg[self.inputs_field_index]]
-            self.to_addrs = [] #TODO to continue
+            self.to_addrs = []
             self.assets = []
             self.amounts = []
             return self
@@ -1156,7 +1155,7 @@ class Block():
         utc_ts = tools.utc_timestamp_b()
         unspent_input_genesis_tx = tools.MsgType.Type.UNSPENT_TX.value.decode() + genesis_msg.ljust(32)
         print("unspent_input_genesis_tx", unspent_input_genesis_tx)
-        genesis_ctx = ('1', tools.MsgType.Type.PARENT_TX_MSG.value.decode(), [[unspent_input_genesis_tx]][0],
+        genesis_ctx = (b'1', tools.MsgType.Type.PARENT_TX_MSG.value, [[unspent_input_genesis_tx.encode()]][0],
                        [g_wallet][0], [tools.config.MAIN_COIN][0], [b'999999999.12345678'][0], b'0.001',
                        utc_ts, gVK._key)
         genesis_ctx_hmac = tools.to_HMAC(genesis_ctx)
@@ -1506,7 +1505,7 @@ class ServiceDb():
 
 
 
-    def persistVerifiedMsg(self, signed_msg_hash, verified_msg, pub_key, msg_type, itx_list, msg_priority=0):
+    def saveVerifiedMsg(self, signed_msg_hash, verified_msg, pub_key, msg_type, itx_list, msg_priority=0):
         msg_priority = msg_priority if msg_priority > 1 else 1
         sql = "INSERT INTO v1_verified_msg (signed_msg_hash, verified_msg, pub_key, msg_type, itx_list, msg_priority) values (?,?,?,?,?,?)"
         print("INSERT INTO v1_verified_msg from %s msg_type: %s with %s priority itx_list(%s)" % (signed_msg_hash, msg_type, msg_priority, itx_list))
@@ -2017,14 +2016,15 @@ class Node():
                     #time.sleep(10)
                     verify_q = tools.SERVICE_DB.queryServiceDB("select * from v1_pending_msg as p where p.signed_msg_hash not in (select signed_msg_hash from v1_verified_msg) order by msg_priority desc, node_date asc") # where node_verified='0'
                     for m in verify_q:
-                        if tools.to_HMAC((unpackb(m[1])[1][0], unpackb(m[1])[1][1])) != m[0]:
+                        msg_hash = tools.to_HMAC((unpackb(m[1])[1][0], unpackb(m[1])[1][1]))
+                        if m[0] != msg_hash:
                             err_msg = "INVALID Hash Header" % m[0]
                             print(err_msg)
                             self.TASKS.deleteSdbInvalidMsqQ.add(m[0])
                             continue
-                        signed_msg_hash = m[0]
+                        signed_msg_hash = m[0] #TODO check recalc
                         signed_msg = (unpackb(m[1])[1][0])
-                        #signed_msg_hash = tools.to_HMAC(signed_msg)
+                        ##assert signed_msg_hash == tools.to_HMAC(signed_msg)
                         print('transport_hash: %s, signed_msg_hash: %s' % (tools.to_HMAC(m), signed_msg_hash))
                         pubk = m[2]
                         if tools.Node.isNodeValid("W" + tools.to_HMAC(pubk)):
@@ -2054,8 +2054,8 @@ class Node():
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
                                     continue
 
-
-                                block_msg_hashes = [m.decode() for m in [msg for msg in ublock[4]]]
+                                block_id = signed_msg_hash
+                                block_msg_hashes = [m.decode() for m in [msg for msg in ublock[4]]] #TODO verify msgType
                                 verified_sql = "select signed_msg_hash from v1_verified_msg where signed_msg_hash in (%s)" % (
                                     ",".join(["'%s'" % m for m in block_msg_hashes]))
                                 print(verified_sql)
@@ -2068,15 +2068,20 @@ class Node():
                                 print("All Block msgs are exist", block_msg_hashes)
                                 verified_sql = "select * from v1_verified_msg where signed_msg_hash in (%s)" % (
                                     ",".join(["'%s'" % m for m in block_msg_hashes]))
-                                print(verified_sql)
                                 verified_msgs = tools.SERVICE_DB.queryServiceDB(verified_sql)
-
+                                #print(verified_sql, '\n', len(verified_msgs), verified_msgs)
+                                verified_ptx_msgs = [m for m in verified_msgs if m[3] == tools.MsgType.Type.PARENT_TX_MSG.value]
 
                                #TODO to continue last
                                 #tools.to_HMAC(ublock[4][0])
                                 #when unsigned ptx inside the block_msg
+                                ptxs = []
                                 ptx_inputs = set()
-                                ptxs_count = len(block_msg_hashes) #(ublock[4])
+                                block_ptx_msg_ids = [m[0] for m in verified_msgs if m[3] == tools.MsgType.Type.PARENT_TX_MSG.value]
+                                block_ptx_msgs = [(m[1], m[2]) for m in verified_msgs if
+                                                     m[3] == tools.MsgType.Type.PARENT_TX_MSG.value]
+                                #print("Calculated PTX's msg hashes:\n", [tools.to_HMAC(m[1]) for m in block_ptx_msgs])##?[tools.to_HMAC(m) for m in block_ptx_msgs])
+                                ptxs_count = len(block_ptx_msg_ids) #(block_msg_hashes) #(ublock[4])
                                 for i in range(ptxs_count):
                                     # ctxs_count = (ublock[4][i][2])
                                     # for k in range(ctxs_count):
@@ -2084,12 +2089,39 @@ class Node():
                                     #     print("ctx %s %s" % (k, ctx))
                                     #     for j in range(len(ctx[2])):
                                     #         ptx_inputs.add(ctx[2][j].decode())
-                                    ptx_ctxs = [unpackb(m) for m in unpackb(verified_msgs[i][1])[2]]
-                                    ptx_ctx_hashes = list(set([inp for inp in [itx[2]
+                                    ptx_ctxs = [unpackb(m) for m in unpackb(verified_ptx_msgs[i][1])[2]]  #verified_msgs
+                                    ptx_ctx_inputs = list(set([inp for inp in [itx[2]
                                          for itx in [unpackb(m) for m in unpackb(
-                                         verified_msgs[i][1])[2]]] for inp in inp]))
+                                         verified_ptx_msgs[i][1])[2]]] for inp in inp])) #verified_msgs
+                                    [ptx_inputs.add(inp) for inp in ptx_ctx_inputs]
+                                    #ptxs.append({"ptx": block_ptx_msgs[i], "inputs": ptx_ctx_inputs, "ctxs": ptx_ctxs_hashes})
+                                    #print("ptx_ctx_inputs: ", len(ptx_ctx_inputs))
 
-                                print("%s ptx_inputs: %s" % (len(ptx_inputs), ptx_inputs))
+                                    ptx_ctxs_hashes = []
+                                    ptx_vk = unpackb(verified_ptx_msgs[i][1])[-1]  #verified_msgs
+                                    for j in range(len(ptx_ctxs)):
+                                        ctx = tuple(ptx_ctxs[j]) + (ptx_vk,)
+                                        ctx_hash_new = tools.to_HMAC(ctx) #tools.to_HMAC((packb(ptx_ctxs[i]), ptx_vk))
+                                        ptx_ctxs_hashes.append(ctx_hash_new)
+                                    ptxs.append(
+                                        {"ptx": block_ptx_msg_ids[i], "inputs": ptx_ctx_inputs, "ctxs": ptx_ctxs_hashes})
+
+                                #print("%s block_ptx_inputs: %s" % (len(ptx_inputs), ptx_inputs))
+                                #print("%s block_ptx_ctxs_new_hashes: %s" % (len(ptx_ctxs), ptx_ctxs_hashes))
+                                print("Block PTXs: ", ptxs)
+
+                                block_id = "W" + signed_msg_hash #TODO block//wallets state hash
+                                block_msgs = {}
+                                for k in range(len(ptxs)):
+                                    for kk in range(len(ptxs[k]["inputs"])): #mark ptx inputs as spent
+                                        block_msgs["-" + ptxs[k]["inputs"][kk]] = block_id
+                                    for kk in range(len(ptxs[k]["ctxs"])): #add new ctxs
+                                        block_msgs[ptxs[k]["ctxs"][kk]] = "+" + ptxs[k]["ptx"]
+                                    block_msgs["+" + ptxs[k]["ptx"]] = block_id #assign main ptx to block
+                                    block_msgs["*" + ptxs[k]["ptx"]] = block_ptx_msgs[k] #write main ptx to blockchain
+                                    print("Block %s msgs: %s" % (block_id, block_msgs))
+
+                                #todo msgs, icos, contract ...types
 
 
                                 # for ptx_input in ptx_inputs:
@@ -2197,9 +2229,9 @@ class Node():
                                     #if m[3] == tools.MsgType.Type.PARENT_TX_MSG.value
                                     itx_list_u = list(set([item for item in [itx[2] for itx in umsg[2]] for item in item]))
                                     print("PTX itx_list_u", itx_list_u)
-                                    itx_list = packb(itx_list_u) #b'TODO' # #packb(['TODO ITX_LIST'])
+                                    itx_list = packb(itx_list_u) #b'TODO remove?'
                                     #self.putQ(lambda: tools.persistVerifiedMsg(signed_msg_hash, vmsg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority=msg_priority))
-                                    tools.persistVerifiedMsg(signed_msg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority)
+                                    tools.saveVerifiedMsg(signed_msg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority)
                                     self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
                                     #self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash) #negative test
                                 else:
