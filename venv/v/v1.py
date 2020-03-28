@@ -270,7 +270,7 @@ class Types():
     def isValidType(self, msg):
         type_index_byte = 1 # Version 1
         try:
-            return msg[type_index_byte] in [v.value for v in self.Type] #str type expected
+            return msg[type_index_byte].encode() in [v.value for v in self.Type] #str type expected?
         except:
             return False
 
@@ -1147,7 +1147,7 @@ class Block():
         g_wallet = "W" + g_wallet
         assert tools.getDbKey(g_wallet) ##tools.isDBvalue(g_wallet)
         ##assert unpackb(tools.getDbKey(packb(g_wallet)))[b'version'] == tools.b(self.version)
-        assert unpackb(tools.getDbKey(g_wallet.encode()))[b'version'] == tools.b(self.version)
+        assert unpackb(tools.getDbKey(g_wallet.encode()))['version'] == self.version
         isAssetCreated = tools.createAsset(tools.config.MAIN_COIN, ' MainCoin - FxCash ', 128000000000,
                                            10, 1000, [], g_wallet,  desc='createAsset')
         assert isAssetCreated
@@ -1220,7 +1220,7 @@ class Block():
         # tools.insertDbKey(tools.MsgType.Type.BLOCK_MSG.value + genesis_block_hash, block_msg_bin)  # insertBlock
         block_id = tools.Block.insertBlock(genesis_block_hash, block_msg_verified_bin)
         if not block_id is None:
-            g_tx_hash = unpackb(block_msg_verified_bin)[4][0].decode()[1:]
+            g_tx_hash = unpackb(block_msg_verified_bin)[4][0][1:]
             print("INSERT *PTX TRANSACTION: %s" % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash))
             tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + g_tx_hash, g_signed_msg_and_key_bytes)  # PTX SDB
             print("INSERT +PTX TRANSACTION: %s" % (tools.MsgType.Type.UNSPENT_TX.value.decode() + g_tx_hash))
@@ -1267,7 +1267,7 @@ class Block():
                 block_umsg = unpackb(block_msg)
             if not tools.MsgType.isValidType(block_umsg):
                 return False
-            if not block_umsg[1] is self.MsgType.Type.BLOCK_MSG.value:
+            if not block_umsg[1].encode() is self.MsgType.Type.BLOCK_MSG.value:
                 return False
             if len(packb(block_umsg)) > self.MsgType.Type.BLOCK_MSG_MAX_SIZE.value:
                 return False #TODO with key
@@ -1277,14 +1277,14 @@ class Block():
                 block_field_names = list(block_msg_fields_index.keys())  # [0] #fields amount
                 for i in range(len(block_field_names) - 1): #-1 is MsgSig, verified prev
                     field_value = block_umsg[i]
-                    if type(field_value) is not block_msg_fields[block_field_names[i]]:  # fields type
-                        return False
+                    ##if type(field_value) is not block_msg_fields[block_field_names[i]]:  # fields type
+                    ##    return False
                     if (type(field_value) is list):
                         for field in field_value:
                             # restricted_list_types = [v for v in list_value if type(v) not in (bytes, str, list)] #list_fields type
                             # if len(restricted_list_types) > 0:
                             # return False
-                            if len(field) != 33 or type(field) is not bytes:  # 1b msgType + 32b hashId
+                            if len(field) != 33: # or type(field) is not bytes:  # 1b msgType + 32b hashId
                                 return False #TODO fieldType in MsgTypes
 
                 return block_umsg
@@ -2008,7 +2008,7 @@ class Node():
             try:
                 now = int(time.time())
                 if not self.TASKS.verify_processing and now - self.TASKS.start_time >= self.TASKS.RUN_SECS: #TODO tools.config.TASK_VERIFY_SDB_INTERVAL_SECS
-                    ##tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where node_verified < 0") # where node_verified < 0")
+                    ##tools.SERVICE_DB.queryServiceDB("delete from v1_pending_msg where node_verified < 0")
                     #self.deleteSdbMsgTask()
                     self.TASKS.verify_processing = True
                     self.TASKS.start_time = now
@@ -2055,7 +2055,7 @@ class Node():
                                     continue
 
 
-                                block_msg_hashes = [m.decode() for m in [msg for msg in ublock[4]]]
+                                block_msg_hashes = [m for m in [msg for msg in ublock[4]]]
                                 verified_sql = "select signed_msg_hash from v1_verified_msg where signed_msg_hash in (%s)" % (
                                     ",".join(["'%s'" % m for m in block_msg_hashes]))
                                 print(verified_sql)
@@ -2181,7 +2181,7 @@ class Node():
                                 #             #print("Wallet %s Unspent Amounts \n%s" % (wallet_id, ua))
 
                             # TODO compute/calc MsgHash
-                            elif m[3] == tools.MsgType.Type.PARENT_TX_MSG.value:
+                            elif m[3].encode() == tools.MsgType.Type.PARENT_TX_MSG.value:
                                 isVerified, msg_bin = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
                                 if not self.TASKS.isNone(isVerified):
                                     umsg = unpackb(msg_bin)
@@ -2257,13 +2257,13 @@ class Node():
             print("local_wallet_data %s %s: " % (sender_wallet_id, wallet_data))
             wallet_unspent_amounts = [{asset: sum([Decimal(inp[1].decode())
                                      for inp in
-                                     wallet_data[b"assets"][asset][b"inputs"]]) -
+                                     wallet_data["assets"][asset]["inputs"]]) -
                                      sum([Decimal(inp[1].decode())
                                      for inp in
-                                     wallet_data[b"assets"][asset][b"outputs"]]) -
+                                     wallet_data["assets"][asset]["outputs"]]) -
                                      sum([Decimal(inp[1].decode())
-                                     for inp in wallet_data[b"assets"][asset][b"outputs_pending"]]) }
-                                     for asset in wallet_data[b"assets"]]
+                                     for inp in wallet_data["assets"][asset]["outputs_pending"]]) }
+                                     for asset in wallet_data["assets"]]
             #todo assert negative value doesnt exist in unspents + notify
             print("wallet_unspent_amounts", wallet_unspent_amounts)
             ptx_in = msg_id
@@ -2277,9 +2277,9 @@ class Node():
                 asset = ctxs_assets[i]
                 amounts_and_fees = tools.dec2b(ctxs_amounts[i] + ctxs_fees[i])
                 print("ctx asset: ", asset)
-                wallet_data[b"assets"][asset][b"outputs_pending"].append([ctxs_outs[i], amounts_and_fees, ptx_in])
+                wallet_data["assets"][asset]["outputs_pending"].append([ctxs_outs[i], amounts_and_fees, ptx_in])
                 total_pending = sum([(Decimal(out[1].decode())) for
-                                     out in wallet_data[b"assets"][asset][b"outputs_pending"]])
+                                     out in wallet_data["assets"][asset]["outputs_pending"]])
                 unspent_amount = [unspent_amount for unspent_amount in wallet_unspent_amounts if asset in unspent_amount.keys()]
                 asset_unspent_amount = unspent_amount[0][asset] if len(unspent_amount) > 0 else 0
                 if total_pending > asset_unspent_amount:
@@ -2563,18 +2563,18 @@ class Wallet():
                 if not reciever_wallet or not sender_wallet:
                     return False
 
-                if not assets[i] in reciever_wallet[b"assets"]:
-                    reciever_wallet[b"assets"][assets[i]] = {b'inputs': [], b'outputs': []}
-                if not assets[i] in sender_wallet[b"assets"]:
-                    sender_wallet[b"assets"][assets[i].encode()] = {'inputs': [], 'outputs': []}
+                if not assets[i] in reciever_wallet["assets"]:
+                    reciever_wallet["assets"][assets[i]] = {'inputs': [], 'outputs': []}
+                if not assets[i] in sender_wallet["assets"]:
+                    sender_wallet["assets"][assets[i].encode()] = {'inputs': [], 'outputs': []}
                 #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
                 reciever_utxi = tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2][0], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5][0], ptx_msg[6], ptx_msg[8], ptx_msg[9]))
                 print("reciever_utxi/amount/ptx_hash: %s/%s/%s" % (reciever_utxi, amounts[i], ptx_hash))
-                reciever_wallet[b"assets"][assets[i]][b'inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
+                reciever_wallet["assets"][assets[i]]['inputs'].append([reciever_utxi, amounts[i], ptx_hash])## todo link-ptx-block?
                 print('reciever_utxi', reciever_utxi, ptx_hash)
                 print("INSERT *CTX TRANSACTION: %s from *PTX: %s txIndex: %s " % (tools.MsgType.Type.PARENT_TX_MSG.value.decode() + reciever_utxi[1:], ptx_hash, i))
                 #TODO limit ctx <=255 in Ptx?
-                assert ptx_msg[7][0][1:] == reciever_utxi[1:] #ctx_hash
+##                assert ptx_msg[7][0][1:] == reciever_utxi[1:] #ctx_hash
                 tools.insertDbKey(tools.MsgType.Type.PARENT_TX_MSG.value.decode() + reciever_utxi[1:], i)  # new unspent tx
                 print("INSERT +CTX TRANSACTION %s from *PTX %s"  % (reciever_utxi, ptx_hash))
                 tools.insertDbKey(reciever_utxi, ptx_hash) #new unspent tx
@@ -2584,7 +2584,7 @@ class Wallet():
                 print("Reciever Wallet:\n", reciever_wallet)
                 sender_wallet = self.getDbWallet(sender_wallet_id)  # reopen for update or change ?
                 assert sender_wallet
-                sender_wallet[b"assets"][assets[i]][b'outputs'].append([reciever_utxi, amounts[i], ptx_hash])
+                sender_wallet["assets"][assets[i]]['outputs'].append([reciever_utxi, amounts[i], ptx_hash])
                 tools.insertDbKey(sender_wallet_id, sender_wallet, override=True)
                 print("Payment from %s to wallet %s of  %s %s coins" % (sender_wallet_id, recipients[i], assets[i], amounts[i]))
                 print("Sender Wallet:\n", sender_wallet)
@@ -2691,11 +2691,11 @@ class Wallet():
                 if asset_type is None:
                     # todo field indexing + stateNotPending?
                     unspent_assets = {}
-                    for a in wallet_data[b"assets"]:
-                        utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][a][b"inputs"]])
+                    for a in wallet_data["assets"]:
+                        utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data["assets"][a]["inputs"]])
                         #remove pending onSync DB and local wallets
-                        utxos_pending_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs_pending"]])
-                        utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs"]])
+                        utxos_pending_total = sum([Decimal(outps[1].decode()) for outps in wallet_data["assets"][a]["outputs_pending"]])
+                        utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data["assets"][a]["outputs"]])
                         #TODO total_otput+fees
                         print("wallet_id: %s - inputs: %s, outputs: %s, pending: %s" % (wallet_id, utxis_total, utxos_total, utxos_pending_total))
                         if utxos_total + utxos_pending_total  > utxis_total: #or utxos_total == 0 or utxis_total == 0:
@@ -2703,14 +2703,14 @@ class Wallet():
                         else:
                             #utxis = set()
                             #[utxis.add(inps[0]) for inps in wallet_data[b"assets"][a][b"inputs"]]
-                            utxis_amounts = [(inps[0], inps[1]) for inps in wallet_data[b"assets"][a][b"inputs"]]
+                            utxis_amounts = [(inps[0], inps[1]) for inps in wallet_data["assets"][a]["inputs"]]
                             unspent_assets[a] = (utxis_total - utxos_total - utxos_pending_total), utxis_amounts
                     print("unspent_assets: ", unspent_assets)
                     return unspent_assets
                 else:
-                    utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][asset_type][b"inputs"]])
-                    utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][asset_type][b"outputs"]])
-                    utxos_pending_total = sum([Decimal(outps[1].decode()) for outps in wallet_data[b"assets"][a][b"outputs_pending"]])
+                    utxis_total = sum([Decimal(inps[1].decode()) for inps in wallet_data["assets"][asset_type]["inputs"]])
+                    utxos_total = sum([Decimal(outps[1].decode()) for outps in wallet_data["assets"][asset_type]["outputs"]])
+                    utxos_pending_total = sum([Decimal(outps[1].decode()) for outps in wallet_data["assets"][a][b"outputs_pending"]])
                     if utxos_total + utxos_pending_total > utxis_total:
                         return None
                     else:

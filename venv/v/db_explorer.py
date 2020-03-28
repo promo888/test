@@ -162,3 +162,4 @@ def query_sqlitedb():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port='5000', debug=True)
+#http://localhost:5000/dbk?key=W64135598da61b4b4586345cb3d0b969b
