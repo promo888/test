@@ -2135,6 +2135,7 @@ class Node():
                                     #continue #proceed to next msg
                                     pass
 
+
                                 # for ptx_input in ptx_inputs:
                                 #     if not tools.isDBvalue(ptx_input.encode()):
                                 #         log_msg = "PTX %s is NOT found in DB" % (ptx_input)
