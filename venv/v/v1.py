@@ -199,6 +199,7 @@ class Helper:
             return None
 
 
+#class BreakIt(Exception): pass
 
 # class Events:
 #     MSG_ACCEPTED
@@ -952,14 +953,14 @@ class Transaction():
             for inp in msg_inputs:
 
                 print("tools.isDBvalue? [inp[1:]] %s - %s" % ((inp[1:], tools.isDBvalue(inp[1:]))))
-                print("not tools.isDBvalue? ['*' + inp[1:]] %s - %s" % ((b"*" + inp[1:], not tools.isDBvalue(b"*" + inp[1:]))))
-                print("not tools.isDBvalue? ['+' + inp[1:]] %s - %s" % ((b"+" + inp[1:], not tools.isDBvalue(b"+" + inp[1:]))))
-                print("tools.isDBvalue? ['-' + inp[1:]] %s - %s" % ((b"-" + inp[1:], tools.isDBvalue(b"-" + inp[1:]))))
+                print("not tools.isDBvalue? ['*' + inp[1:]] %s - %s" % (("*" + inp[1:], not tools.isDBvalue("*" + inp[1:]))))
+                print("not tools.isDBvalue? ['+' + inp[1:]] %s - %s" % (("+" + inp[1:], not tools.isDBvalue("+" + inp[1:]))))
+                print("tools.isDBvalue? ['-' + inp[1:]] %s - %s" % (("-" + inp[1:], tools.isDBvalue("-" + inp[1:]))))
 
                 valid = False
-                if not tools.isDBvalue(b"*" + inp[1:], print_caller='arePtxInputsValid') or \
-                   not tools.isDBvalue(b"+" + inp[1:], print_caller='arePtxInputsValid') or \
-                       tools.isDBvalue(b"-" + inp[1:], print_caller='arePtxInputsValid'):
+                if not tools.isDBvalue("*" + inp[1:], print_caller='arePtxInputsValid') or \
+                   not tools.isDBvalue("+" + inp[1:], print_caller='arePtxInputsValid') or \
+                       tools.isDBvalue("-" + inp[1:], print_caller='arePtxInputsValid'):
                     print("Child PTX %s is invalid" % inp)
                     ##return False
                     invalid = True
@@ -1398,13 +1399,12 @@ class ServiceDb():
                                          'verified_msg'	BLOB NOT NULL,                                 
                                          'pub_key'	BLOB NOT NULL,
                                          'msg_type' BLOB NOT NULL DEFAULT NULL,
-                                         'msg_priority' INTEGER DEFAULT 0,
-                                         'itx_list'	BLOB NOT NULL,
+                                         'msg_priority' INTEGER DEFAULT 0,                                         
                                          'node_date'	timestamp default current_timestamp,                                 
                                          PRIMARY KEY(signed_msg_hash)                                 
                                         );
                                      '''
-
+#'itx_list'	BLOB NOT NULL,
 
         ddl_list = [ddl_v1_pending_msg,  ddl_v1_verified_msg] #ddl_v1_pending_blk, ddl_v1_pending_tx]
         con = self.SERVICE_DB
@@ -1508,12 +1508,14 @@ class ServiceDb():
 
     def persistVerifiedMsg(self, signed_msg_hash, verified_msg, pub_key, msg_type, itx_list, msg_priority=0):
         msg_priority = msg_priority if msg_priority > 1 else 1
-        sql = "INSERT INTO v1_verified_msg (signed_msg_hash, verified_msg, pub_key, msg_type, itx_list, msg_priority) values (?,?,?,?,?,?)"
+        ##sql = "INSERT INTO v1_verified_msg (signed_msg_hash, verified_msg, pub_key, msg_type, itx_list, msg_priority) values (?,?,?,?,?,?)"
+        sql = "INSERT INTO v1_verified_msg (signed_msg_hash, verified_msg, pub_key, msg_type, msg_priority) values (?,?,?,?,?)"
         print("INSERT INTO v1_verified_msg from %s msg_type: %s with %s priority itx_list(%s)" % (signed_msg_hash, msg_type, msg_priority, itx_list))
         con = tools.SERVICE_DB.getServiceDB()
         try:
             with con:
-                con.execute(sql, [signed_msg_hash, sqlite3.Binary(verified_msg), sqlite3.Binary(pub_key), msg_type, sqlite3.Binary(itx_list), msg_priority])
+                ##con.execute(sql, [signed_msg_hash, sqlite3.Binary(verified_msg), sqlite3.Binary(pub_key), msg_type, sqlite3.Binary(itx_list), msg_priority])
+                con.execute(sql, [signed_msg_hash, sqlite3.Binary(verified_msg), sqlite3.Binary(pub_key), msg_type, msg_priority])
                 con.commit()
         except Exception as ex:
             err_msg = "Exception ServiceDB: \nINSERT INTO v1_verified_msg\n %s\n%s" % (ex, ex.__traceback__.tb_lineno)
@@ -1657,6 +1659,8 @@ class Db():
         if print_caller != '':
             print('Caller: ' + caller_n)
         try:
+            if isinstance(bin_key, str):
+                bin_key = bin_key.encode()
             if not isinstance(bin_key, bytes):
                 bin_key = tools.packb(bin_key)
             if db_path is None:
@@ -1669,7 +1673,7 @@ class Db():
                 dbm = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(_db_path)  # Once init held by the process
             value = dbm.get(bin_key) #dbm.Get(bin_key)
             # print('isDBvalue key=%s, \nvalue=%s' % (bin_key, value)
-            if value is None: #or value == b'': # or not isinstance(value, bytes):
+            if value is None:
                 return False
             return True
         except Exception as ex:
@@ -1684,7 +1688,7 @@ class Db():
         try:
             value = self.getDbKey(msg_hash, _db_path) # self.DB.DB_PATH
             if value is not None:
-                return value #self.decodeMsg(unpackb(unpackb(value)[0]))
+                return value
             return None
         except Exception as ex:
             return None
@@ -2043,6 +2047,8 @@ class Node():
                                 nodeSig, blockMsg = tools.verifyMsgSig(block_bin[1][0], block_bin[1][1])
                                 ublock = unpackb(blockMsg)
                                 prev_block_hash = ublock[3]
+                                msg_type = m[3]
+                                msg_priority = m[-2]
                                 #print("ublock: %s\n%s\n" % (ublock, [unpackb(inp[2][2])[2] for inp in [m for m in ublock[4]]])) #[unpackb(inp[2][2])[2] for inp in [m for m in ublock[4]]] [inp[2] for inp in [m for m in ublock[4]]]
                                 ##print("Duplicates found in Block = %s" % len(ublock[4]) == len(set(ublock[4])))
                                 if not tools.isDBvalue(prev_block_hash) or \
@@ -2052,7 +2058,7 @@ class Node():
                                     err_msg = "BLOCK (%s) IS INVALID" % signed_msg_hash
                                     print(err_msg)
                                     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
-                                    continue
+                                    continue #todo supposed to ignore irrelevant block or block with missing msgs
 
 
                                 block_msg_hashes = [m for m in [msg for msg in ublock[4]]]
@@ -2060,9 +2066,9 @@ class Node():
                                     ",".join(["'%s'" % m for m in block_msg_hashes]))
                                 print(verified_sql)
                                 verified_msgs = tools.SERVICE_DB.queryServiceDB(verified_sql)
-                                sdb_msgs = [m[0] for m in verified_msgs]
-                                if len(sdb_msgs) != len(block_msg_hashes):
-                                    missing_msgs = list(set(block_msg_hashes) - set(sdb_msgs))
+                                verified_msg_hashes = [m[0] for m in verified_msgs]
+                                if len(verified_msg_hashes) != len(block_msg_hashes): #TODO compare set of hashes
+                                    missing_msgs = list(set(block_msg_hashes) - set(verified_msg_hashes))
                                     print("If not in pending - get missing - else update priority")
                                     continue
                                 print("All Block msgs are exist", block_msg_hashes)
@@ -2071,11 +2077,20 @@ class Node():
                                 print(verified_sql)
                                 verified_msgs = tools.SERVICE_DB.queryServiceDB(verified_sql)
 
+                                # print("test calc msg_hash1", tools.to_HMAC(packb(verified_msgs[0][1])))
+                                # print("test calc msg_hash2",
+                                #       tools.to_HMAC(packb((verified_msgs[0][1][:-32],
+                                #                      verified_msgs[0][1][-32:]
+                                #                      ))))
+                                # print("test calc msg_hash3",
+                                #       tools.to_HMAC(((verified_msgs[0][1],
+                                #                            verified_msgs[0][1][-32:]
+                                #                            ))))
 
                                #TODO to continue last
                                 #tools.to_HMAC(ublock[4][0])
                                 #when unsigned ptx inside the block_msg
-                                ptx_inputs = set()
+                                ##ptx_txs = set()
                                 ptxs_count = len(block_msg_hashes) #(ublock[4])
                                 for i in range(ptxs_count):
                                     # ctxs_count = (ublock[4][i][2])
@@ -2084,13 +2099,41 @@ class Node():
                                     #     print("ctx %s %s" % (k, ctx))
                                     #     for j in range(len(ctx[2])):
                                     #         ptx_inputs.add(ctx[2][j].decode())
-                                    ptx_ctxs = [unpackb(m) for m in unpackb(verified_msgs[i][1])[2]]
-                                    ptx_ctx_hashes = list(set([inp for inp in [itx[2]
+                                    msg_ctxs = [unpackb(m) for m in unpackb(verified_msgs[i][1])[2]]
+                                    msg_inputs_ids = list(set([inp for inp in [itx[2]
                                          for itx in [unpackb(m) for m in unpackb(
-                                         verified_msgs[i][1])[2]]] for inp in inp]))
+                                         verified_msgs[i][1])[2]]] for inp in inp])) #todo validate calc vs submitted or ignore? in-msg ctx hashes
+                                    print('Msg inputs hashes: ', len(msg_inputs_ids), msg_inputs_ids)
+                                    ##[ptx_txs.add(ctx) for ctx in ptx_ctx_hashes]
 
-                                print("%s ptx_inputs: %s" % (len(ptx_inputs), ptx_inputs))
+                                print("Block %s msg_hashes: %s %s" % (signed_msg_hash, len(block_msg_hashes), block_msg_hashes))
+                                print("%s (msg/ptx) inputs: %s" % (ptxs_count, msg_ctxs))
 
+                                #Block is valid and msgs already verified!!!
+                                tools.persistVerifiedMsg(signed_msg_hash, blockMsg, pubk, msg_type, msg_priority)
+                                self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
+                                #TODO raise exception/ignore if there are missing transactions, invalid...
+
+                                block_msg_hashes.append(signed_msg_hash)
+                                #todo? change saving blockchain verified_msg into signed_msg -> Sig 1000request/sec WebLoad
+                                #todo currently ptxs only
+                                verified_sql = "select * from v1_verified_msg where signed_msg_hash in (%s)" % (
+                                    ",".join(["'%s'" % m for m in block_msg_hashes]))
+                                block_ptx_inputs = set()
+                                try:
+                                    for msg in verified_msgs: #todo redo validation hash(msg,pubk)
+                                        umsg = unpackb(msg[1])
+                                        itx_list_u = set([item for item in [unpackb(itx)[2] for itx in umsg[2]] for item in item ])
+                                        print("PTX itx_list_u", itx_list_u)
+                                        for itx in itx_list_u:
+                                            if itx in block_ptx_inputs: #duplicate
+                                                raise Exception("Duplicate Inputs/Spendings")
+                                            block_ptx_inputs.add(itx)
+                                        print("block_ptx_inputs", block_ptx_inputs)
+                                except Exception as ex:
+                                    print("Valid Block Exception: ", ex.__traceback__.tb_lineno, ex)
+                                    #continue #proceed to next msg
+                                    pass
 
                                 # for ptx_input in ptx_inputs:
                                 #     if not tools.isDBvalue(ptx_input.encode()):
@@ -2181,7 +2224,7 @@ class Node():
                                 #             #print("Wallet %s Unspent Amounts \n%s" % (wallet_id, ua))
 
                             # TODO compute/calc MsgHash
-                            elif m[3].encode() == tools.MsgType.Type.PARENT_TX_MSG.value:
+                            elif m[3] == tools.MsgType.Type.PARENT_TX_MSG.value:
                                 isVerified, msg_bin = tools.Crypto.verifyMsgSig(signed_msg, pubk, False)
                                 if not self.TASKS.isNone(isVerified):
                                     umsg = unpackb(msg_bin)
@@ -2199,7 +2242,8 @@ class Node():
                                     print("PTX itx_list_u", itx_list_u)
                                     itx_list = packb(itx_list_u) #b'TODO' # #packb(['TODO ITX_LIST'])
                                     #self.putQ(lambda: tools.persistVerifiedMsg(signed_msg_hash, vmsg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority=msg_priority))
-                                    tools.persistVerifiedMsg(signed_msg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority)
+                                    ##tools.persistVerifiedMsg(signed_msg_hash, msg_bin, pubk, msg_type, itx_list, msg_priority)
+                                    tools.persistVerifiedMsg(signed_msg_hash, msg_bin, pubk, msg_type, msg_priority)
                                     self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
                                     #self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash) #negative test
                                 else:
@@ -2792,9 +2836,9 @@ class Wallet():
                     change_amount = change_wallet_asset_amount[asset]
                     change_fee = Decimal(service_fee.decode())
                     if change_amount - change_fee > 0:
-                        ctx = packb((tools.MsgType.Type.VERSION.value.decode(), tools.MsgType.Type.PARENT_TX_MSG.value.decode(), [change_wallet_asset_itx[asset]],
-                                     "W" + pub_addr, asset, tools.dec2b(change_amount-change_fee), service_fee, utc_ts))
-                        ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value.decode() + tools.to_HMAC((ctx, pub_key)))
+                        ctx = packb((tools.MsgType.Type.VERSION.value, tools.MsgType.Type.PARENT_TX_MSG.value, [change_wallet_asset_itx[asset]],
+                                     ("W" + pub_addr).encode(), asset, tools.dec2b(change_amount-change_fee), service_fee, utc_ts))
+                        ctxs_outputs.append(tools.MsgType.Type.UNSPENT_TX.value + tools.to_HMAC((ctx, pub_key)).encode())
                         ctxs.append(ctx) #(ctx[:-1]) #exclude pub_key, it will be taken from the parentTx -> ptx
                         change_amount -= change_fee
                         amounts.append(tools.dec2b(change_amount - change_fee))
@@ -2802,8 +2846,8 @@ class Wallet():
                         to_addrs.append("W" + pub_addr)
                         change_wallet_asset_amount[asset] -= change_fee
 
-            ptx = (tools.MsgType.Type.VERSION.value.decode(),
-                   tools.MsgType.Type.PARENT_TX_MSG.value.decode(), ctxs,
+            ptx = (tools.MsgType.Type.VERSION.value,
+                   tools.MsgType.Type.PARENT_TX_MSG.value, ctxs,
                    to_addrs, asset_types, amounts,
                    tools.dec2b(Decimal(service_fee.decode()) * len(ctxs)),
                    ctxs_outputs, utc_ts, pub_key)
@@ -3171,10 +3215,10 @@ if __name__ == "__main__":
 
     #ptx2 = tools.testTx("test1", [tools.config.MAIN_COIN], [b"1"], ["test2"]) # ptx2 is None #TODO toValidate
     time.sleep(1)
-    ##ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
-    ##assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
-    ##ptx2 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
-    ##assert not ptx2 is None
+    # ptx2 = tools.testTx("Miner1", [tools.config.MAIN_COIN], [b"1"], ["test1"]) #Negative test without sleep -> duplicateMsg
+    # assert ptx1 != ptx2 #todo assert duplicates in ptx wallet pending?
+    # ptx2 = tools.createAndSendPtx("Miner1", [tools.config.MAIN_COIN, tools.config.MAIN_COIN], [b"1", b"1"], ["test1", "test1"])
+    # assert not ptx2 is None
     msg_list = [smsg[3]]#[ptx] ##[ptx1, ptx2] #[ptx1, ptx2] [ptx1, ptx1] # Negative test for ptx2 = None + TODO check for None msg
     #msg_list = ["*" + tools.to_HMAC(ptx1), "*" + tools.to_HMAC(ptx2)]
     #msg_list = [tools.to_HMAC(ptx1), tools.to_HMAC(ptx2)]
