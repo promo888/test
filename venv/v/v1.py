@@ -1548,6 +1548,15 @@ class ServiceDb():
             print("Exception deleteSdbInvalidMsgs: %s \n%s" % (ex, ex.__traceback__.tb_lineno) )
 
 
+    def deleteBlockSdbVerifiedMsgs(self, hash_list):
+        try:
+            sql = "delete from v1_verified_msg where signed_msg_hash in (%s)" % ",".join(["'%s'" % hash_id[1:] for hash_id in hash_list])
+            print("deleteBlockSdbVerifiedMsgsSql: ", sql)
+            tools.SERVICE_DB.queryServiceDB(sql)
+        except Exception as ex:
+            print("Exception deleteBlockSdbVerifiedMsgs: %s \n%s" % (ex, ex.__traceback__.tb_lineno) )
+
+
     # class PendingMsg(SQLObject): #PendingMsg(SQLObject): v1_pending_msg
     #     def __init__(self):
     #         sqlhub.processConnection = connectionForURI('sqlite:' + Config().NODE_SERVICE_DB)
@@ -1564,7 +1573,7 @@ class ServiceDb():
 
 class Db():
     def __init__(self, db_path):
-        #self.logger = Logger() #Logger('Db')
+        self.logger = Logger() #Logger('Db')
         self.LEVEL_DB = None
         self.DB_PATH = db_path
 
@@ -1602,17 +1611,29 @@ class Db():
             return None
 
 
-    def insertDbKeys(self, kv_dict, db_path, override=False):
+    def insertDbKeys(self, kv_dict, db_path=None, override=False):
         try:
-            if self.DB.LEVEL_DB is None:
-                self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
-            with db.write_batch() as wb:
+            if db_path is None:
+                db_path = tools.DB.DB_PATH
+            if tools.DB.LEVEL_DB is None:
+                #tools.DB.LEVEL_DB = self.LEVEL_DB
+                self.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
+            with self.LEVEL_DB.write_batch() as wb:
+                print("DB_Batch: ", kv_dict.keys())
                 for k, v in kv_dict.items():
+                    if isinstance(k, str):
+                        k = k.encode()
+                    if not isinstance(k, bytes):
+                        k = packb(k)
+                    if isinstance(v, str):
+                        v = v.encode()
+                    if not isinstance(v, bytes):
+                        v = packb(v)
                     wb.put(k, v)
             return True
         except Exception as ex:
-            err_msg = 'Exception on insert (key %s) (value %s) to LevelDB NODE_DB: %s %s ' % (
-            bin_key, bin_value, Logger.exc_info(), ex)
+            err_msg = 'Exception on insert to LevelDB NODE_DB:\n (kv_list %s\n) : %s %s ' \
+                      % (kv_dict, Logger.exc_info(), ex)
             self.logger.logp(err_msg, logging.ERROR)
             return None
 
@@ -2034,6 +2055,7 @@ class Node():
                         if tools.Node.isNodeValid("W" + tools.to_HMAC(pubk)):
                             if m[3] == tools.MsgType.Type.BLOCK_MSG.value:
                                 msg_list = set()
+                                block_persist_msgs = {}
                                 # ublock = unpackb(m)
                                 # if False in [tools.arePtxInputsValid(tx) for tx in ublock[2]]:
                                 #     self.TASKS.deleteSdbInvalidMsqQ.add(signed_msg_hash)
@@ -2077,16 +2099,6 @@ class Node():
                                 print(verified_sql)
                                 verified_msgs = tools.SERVICE_DB.queryServiceDB(verified_sql)
 
-                                # print("test calc msg_hash1", tools.to_HMAC(packb(verified_msgs[0][1])))
-                                # print("test calc msg_hash2",
-                                #       tools.to_HMAC(packb((verified_msgs[0][1][:-32],
-                                #                      verified_msgs[0][1][-32:]
-                                #                      ))))
-                                # print("test calc msg_hash3",
-                                #       tools.to_HMAC(((verified_msgs[0][1],
-                                #                            verified_msgs[0][1][-32:]
-                                #                            ))))
-
                                #TODO to continue last
                                 #tools.to_HMAC(ublock[4][0])
                                 #when unsigned ptx inside the block_msg
@@ -2105,12 +2117,26 @@ class Node():
                                          verified_msgs[i][1])[2]]] for inp in inp])) #todo validate calc vs submitted or ignore? in-msg ctx hashes
                                     print('Msg inputs hashes: ', len(msg_inputs_ids), msg_inputs_ids)
                                     ##[ptx_txs.add(ctx) for ctx in ptx_ctx_hashes]
+                                    #todo 2check ctx_hash = hmac(utcx) ##itx+wallet+(ts <salt?> ?excl?) + inp_id is unique? ->exclude pubk
+                                    msg_ctxs_pubkeys = [m[2] for m in verified_msgs]
+                                    msg_ctxs_kv = []
+                                    ptx_hash = block_msg_hashes[i]
+                                    for m in range(len(msg_ctxs)):
+                                        ctx_hash = tools.to_HMAC(packb((msg_ctxs[m], msg_ctxs_pubkeys[0])))
+                                        ctx_msg = packb((msg_ctxs[m], msg_ctxs_pubkeys[0]))
+                                        block_persist_msgs["*" + ctx_hash] = ctx_msg
+                                        block_persist_msgs["+" + ctx_hash] = "+" + ptx_hash
+                                        print("Block %s PTX: %s \nInputs: %s \nCTX: %s \nMsg: %s " % ("B" + signed_msg_hash, ptx_hash, msg_inputs_ids, ctx_hash, msg_ctxs[m]))
+                                        block_persist_msgs["-" + ptx_hash] = "B" + signed_msg_hash
 
                                 print("Block %s msg_hashes: %s %s" % (signed_msg_hash, len(block_msg_hashes), block_msg_hashes))
                                 print("%s (msg/ptx) inputs: %s" % (ptxs_count, msg_ctxs))
 
+
                                 #Block is valid and msgs already verified!!!
                                 tools.persistVerifiedMsg(signed_msg_hash, blockMsg, pubk, msg_type, msg_priority)
+                                #TODO
+                                print("TODO######Update Wallets#####wallets state+ block_hash######")
                                 self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
                                 #TODO raise exception/ignore if there are missing transactions, invalid...
 
@@ -2119,6 +2145,7 @@ class Node():
                                 #todo currently ptxs only
                                 verified_sql = "select * from v1_verified_msg where signed_msg_hash in (%s)" % (
                                     ",".join(["'%s'" % m for m in block_msg_hashes]))
+
                                 block_ptx_inputs = set()
                                 try:
                                     for msg in verified_msgs: #todo redo validation hash(msg,pubk)
@@ -2127,12 +2154,27 @@ class Node():
                                         print("PTX itx_list_u", itx_list_u)
                                         for itx in itx_list_u:
                                             if itx in block_ptx_inputs: #duplicate
-                                                raise Exception("Duplicate Inputs/Spendings")
+                                                raise Exception("PTX Duplicate Inputs/Spendings")
                                             block_ptx_inputs.add(itx)
+                                            if len(block_ptx_inputs) == 0:
+                                                raise Exception("PTX Missing Inputs")
+                                            block_persist_msgs["-" + itx[1:]] = signed_msg_hash
+                                            #todo to continue last
+
                                         print("block_ptx_inputs", block_ptx_inputs)
+                                        msg_bin = packb((msg[1], msg[2]))
+                                        msg_hash = msg[0] #todo recalc hash validation
+                                        block_persist_msgs[msg_hash] = msg_bin
+                                    if len(block_persist_msgs) ==0:
+                                        raise Exception('Block missing PTXs/msgs?')
+                                    block_persist_msgs[signed_msg_hash] = blockMsg #add blockMsg itself
+                                    tools.DB.insertDbKeys(block_persist_msgs)
+                                    tools.SERVICE_DB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
+                                    block_persist_msgs = {}
                                 except Exception as ex:
                                     print("Valid Block Exception: ", ex.__traceback__.tb_lineno, ex)
                                     #continue #proceed to next msg
+                                    block_persist_msgs = {}
                                     pass
 
 
