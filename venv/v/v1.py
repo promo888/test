@@ -2099,10 +2099,8 @@ class Node():
                                 print(verified_sql)
                                 verified_msgs = tools.SERVICE_DB.queryServiceDB(verified_sql)
 
-                               #TODO to continue last
+                                #TODO to continue last
                                 #tools.to_HMAC(ublock[4][0])
-                                #when unsigned ptx inside the block_msg
-                                ##ptx_txs = set()
                                 ptxs_count = len(block_msg_hashes) #(ublock[4])
                                 for i in range(ptxs_count):
                                     # ctxs_count = (ublock[4][i][2])
@@ -2127,7 +2125,7 @@ class Node():
                                         block_persist_msgs["*" + ctx_hash] = ctx_msg
                                         block_persist_msgs["+" + ctx_hash] = "+" + ptx_hash
                                         print("Block %s PTX: %s \nInputs: %s \nCTX: %s \nMsg: %s " % ("B" + signed_msg_hash, ptx_hash, msg_inputs_ids, ctx_hash, msg_ctxs[m]))
-                                        block_persist_msgs["-" + ptx_hash] = "B" + signed_msg_hash
+                                        block_persist_msgs["+" + ptx_hash] = "B" + signed_msg_hash
 
                                 print("Block %s msg_hashes: %s %s" % (signed_msg_hash, len(block_msg_hashes), block_msg_hashes))
                                 print("%s (msg/ptx) inputs: %s" % (ptxs_count, msg_ctxs))
@@ -2147,9 +2145,16 @@ class Node():
                                     ",".join(["'%s'" % m for m in block_msg_hashes]))
 
                                 block_ptx_inputs = set()
+                                block_senders = set()
+                                block_senders_amounts = {}
                                 try:
                                     for msg in verified_msgs: #todo redo validation hash(msg,pubk)
                                         umsg = unpackb(msg[1])
+                                        msg_sender_wallet = "W" + tools.to_HMAC(umsg[-1])
+                                        if msg_sender_wallet in block_senders:
+                                            raise Exception("Only 1 PTX permitted pre block")
+                                        block_senders.add(msg_sender_wallet)
+                                        print("msg_sender_wallet", msg_sender_wallet, tools.WALLET.getDbWalletUnspentAmounts(msg_sender_wallet))
                                         itx_list_u = set([item for item in [unpackb(itx)[2] for itx in umsg[2]] for item in item ])
                                         print("PTX itx_list_u", itx_list_u)
                                         for itx in itx_list_u:
@@ -2158,16 +2163,16 @@ class Node():
                                             block_ptx_inputs.add(itx)
                                             if len(block_ptx_inputs) == 0:
                                                 raise Exception("PTX Missing Inputs")
-                                            block_persist_msgs["-" + itx[1:]] = signed_msg_hash
+                                            block_persist_msgs["-" + itx[1:]] = "B" + signed_msg_hash
                                             #todo to continue last
 
                                         print("block_ptx_inputs", block_ptx_inputs)
                                         msg_bin = packb((msg[1], msg[2]))
                                         msg_hash = msg[0] #todo recalc hash validation
-                                        block_persist_msgs[msg_hash] = msg_bin
+                                        block_persist_msgs["*" + msg_hash] = msg_bin
                                     if len(block_persist_msgs) ==0:
                                         raise Exception('Block missing PTXs/msgs?')
-                                    block_persist_msgs[signed_msg_hash] = blockMsg #add blockMsg itself
+                                    block_persist_msgs["B" + signed_msg_hash] = blockMsg #add blockMsg itself
                                     tools.DB.insertDbKeys(block_persist_msgs)
                                     tools.SERVICE_DB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
                                     block_persist_msgs = {}
@@ -2810,6 +2815,24 @@ class Wallet():
             return None
 
 
+    def getDbWalletUnspentAmounts(self, msg_sender_wallet, asset=None):
+        #todo remove "pendin" from dbWallet
+        try:
+            db_wallet = tools.WALLET.getDbWallet(msg_sender_wallet)
+            db_wallet_assets = db_wallet["assets"].keys() if asset is None else db_wallet[asset]
+            db_wallet_free = {}
+            for a in db_wallet_assets:
+                utxis_total = sum([Decimal(inps[1].decode()) for inps in db_wallet["assets"][a]["inputs"]])
+                utxos_total = sum([Decimal(outps[1].decode()) for outps in db_wallet["assets"][a]["outputs"]])
+                asset_free_amount = utxis_total - utxos_total
+                db_wallet_free[a] = asset_free_amount
+
+                return db_wallet_free, db_wallet
+        except Exception as ex:
+            print("Exception getDbWalletUnspentAmounts: " , ex, ex.__traceback__.tb_lineno)
+            return None, None
+
+
 
     #@func_wrapper
     def createPtx(self, pub_key, asset_types=[], amounts=[], to_addrs=[], service_fee=b"0.001"): #todo set fee from config+validate min 4 miners
@@ -2934,10 +2957,7 @@ class Wallet():
 
 
 
-#TODO to continue
-#[inps for inps in [wallet_data[b"assets"][a][b"inputs"] for a in wallet_data[b"assets"]]]
-#utxai = [inps for inps in [wallet_data[b"assets"][a][b"inputs"] for a in wallet_data[b"assets"]]]
-#utxo = sum([Decimal(inps[1].decode()) for inps in wallet_data[b"assets"][b"1"][b"inputs"]])
+
 
 class Exchange():
     pass
