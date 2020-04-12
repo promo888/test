@@ -2209,6 +2209,7 @@ class Node():
                                     block_persist_msgs["B" + signed_msg_hash] = blockMsg #add blockMsg itself
                                     #block_persist_wallets = {}
                                     print("DB_Batch: ", block_persist_msgs) #.keys())
+                                    print("CalcPtxHash #1", tools.to_HMAC( packb((verified_msgs[0][1], (verified_msgs[0][3])))))
                                     tools.DB.insertDbKeys(block_persist_msgs)
                                     tools.SERVICE_DB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
                                     #block_persist_msgs = {}
