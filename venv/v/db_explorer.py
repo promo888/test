@@ -142,7 +142,9 @@ def query_leveldb_key():
     key = request.query_string.decode().split("key=")[1] or None #request.args.get('key') #.encode()
     print('key"%s"' % key)
     res = DB.getDbKey(key)
-    resp = "Key %s NOT EXIST" % key if res is None else "Key: %s, Value: %s" % (key, unpackb(res)) ##(res if res is IOError else unpackb(res))) ##(key,unpackb(res))
+    try: bout = unpackb(res) if not res is None else "NotExist"
+    except: bout = res.decode() if not res is None else "NotExist"
+    resp = "Key %s NOT EXIST" % key if res is None else "Key: %s, Value: %s" % (key, bout)#unpackb(res)) ##(res if res is IOError else unpackb(res))) ##(key,unpackb(res))
     return resp
 
 @app.route('/dbq', methods=['GET', 'POST'])
