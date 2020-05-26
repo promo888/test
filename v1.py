@@ -891,7 +891,7 @@ class Block():
     def voteBlock(self):#to MasterMiner or NextOnDutyMiner
         pass
 
-
+    @staticmethod
     def validateBlock(self, block_msg):
         #print('ValidateTX...')
         try:
@@ -1121,7 +1121,7 @@ class Db():
             return None
 
 
-    def insertDbKeys(self, kv_dict, db_path, override=False):
+    def insertDbBatch(self, kv_dict, db_path, override=False):
         try:
             if self.DB.LEVEL_DB is None:
                 self.DB.LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
