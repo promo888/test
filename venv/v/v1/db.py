@@ -64,13 +64,14 @@ class Db():
             return None
 
 
-    def insertDbBatchFromDict(self, kv_dict, db_path=None, override=False):
+    def insertDbBatchFromDict(self, kv_dict, db_path=None):
+        # print('kv_dict', kv_dict)
         try:
             if db_path is None:
                 db_path = self.Config.NODE_DB_FOLDER
             if self._LEVEL_DB is None:
-                self._LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
-            with self._LEVEL_DB.write_batch() as wb:
+                self._LEVEL_DB = plyvel.DB(db_path, create_if_missing=True)#, bloom_filter_bits=bloom_filter_bits) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
+            with self._LEVEL_DB.write_batch(transaction=True) as wb: #, transaction=True, sync=False
                 #print("DB_Batch: ", kv_dict.keys())
                 for k, v in kv_dict.items():
                     if isinstance(k, str):
@@ -81,15 +82,22 @@ class Db():
                         v = v.encode()
                     if not isinstance(v, bytes):
                         v = packb(v)
+                    #print("batch_kv", type(k), type(v), v)
+                    print("batch_kv k", k)
                     wb.put(k, v)
+
+                #wb.write()
+            print("batch_written")
+            #sys.exit(0)
             return True
         except Exception as ex:
             err_msg = 'Exception on insert to LevelDB NODE_DB:\n (kv_list %s\n) : %s %s ' \
                       % (kv_dict, logger.Logger.exc_info(), ex)
             #self.logger.logp(err_msg, logging.ERROR)
             return False
-        finally:
-            self.resetDbBatch()
+        #finally:
+            #kv_dict = {}
+            #self.resetDbBatch()
 
 
     @staticmethod
@@ -186,7 +194,7 @@ class Db():
                 db_path = self.Config.NODE_DB_FOLDER
             if self._LEVEL_DB is None:
                 self._LEVEL_DB = plyvel.DB(db_path, create_if_missing=True) #leveldb.LevelDB(db_path) #self.DB.DB_PATH
-            with self._LEVEL_DB.write_batch() as wb:
+            with self._LEVEL_DB.write_batch(transaction=True) as wb: #,transaction=True, sync=False
                 for kv in Db._db_batch:
                     if isinstance(kv[0], str):
                         kv[0] = kv[0].encode()
@@ -197,6 +205,7 @@ class Db():
                     if not isinstance(kv[1], bytes):
                         kv[1] = packb(kv[1])
                     wb.put(kv[0], kv[1])
+                #wb.write()
             return True
         except Exception as ex:
             err_msg = 'Exception on insertBatch to LevelDB NODE_DB:\n (kv_list %s\n) : %s %s' \

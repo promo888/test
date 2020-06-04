@@ -100,12 +100,33 @@ class Transaction():
     #len((('999999999012.12345678'.encode())))
     #Decimal((b'999999999012.12345678').decode())
 
+    def unpackPtx(self, ptx):
+        try:
+            uptx = []
+            tptx = []
+            print("tptx", type(ptx))
+            if isinstance(ptx, tuple):
+                tptx = list(ptx)
+            for f in tptx:
+                if isinstance(f, list):
+                    #print("f", f)
+                    uptx.append([self.Utils.unpackv(ff) if isinstance(ff, bytes) else ff for ff in f])
+                else:
+                    #print("f str", self.Utils.unpackv(f))
+                    uptx.append(self.Utils.unpackv(f))
+            return tptx
+        except Exception as ex:
+            print("Exception transaction unpackPtx", ex.__traceback__.tb_lineno, ex)
+            return None
+        return None if len(uptx) > 0 else uptx
+
     #todo to change verfySig, lenght, childs not exist in DB
     def verifyMsg(self, signed_msg_hash, decoded_msg):
         try:
             valid = False #to validate that from2nd char not exist in db [1:] allMsgType check
             ##msg_hash = self.Crypto.to_HMAC(packb(decoded_msg))
             ##print("Transaction verifyMsg msg", msg_hash, unpackb(decoded_msg))
+            print("decoded_ptx", self.unpackPtx(decoded_msg))
             if decoded_msg[1] == self.Config.MsgType.PARENT_TX_MSG:
                  ptx_inputs =  self.arePtxInputsValid(signed_msg_hash, decoded_msg)
                  res = not self.DB.isDBkey(signed_msg_hash) and ptx_inputs

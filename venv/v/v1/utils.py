@@ -114,19 +114,6 @@ class Utils():
         except:
             return b
 
-    @staticmethod
-    def packb(obj):
-        try:
-            return mp.packb(obj)
-        except:
-            return None
-
-    @staticmethod
-    def unpackb(packed_obj):
-        try:
-            return mp.unpackb(packed_obj)
-        except:
-            return None
 
     @staticmethod
     def isStrNumber(str):
@@ -294,6 +281,32 @@ class Utils():
                     "+": [item for item in second if item not in first]}
         except:
             return "Error in compare"
+
+
+    @staticmethod
+    def decodev(v):
+        try:
+            return unpackb(v)
+        except:
+            try:
+                return v.decode()
+            except:
+                return None
+
+    @staticmethod
+    def unpackv(v):
+        if isinstance(v, bytes):
+            return Utils.decodev(v)
+        elif isinstance(v, str):
+            return v
+        elif isinstance(v, tuple):
+            v = list(v)
+        elif isinstance(v, list):
+            return [Utils.decodev(vv) for vv in v]
+        return None
+
+
+
 ##
 
     # class Task():  # (Db, ServiceDb):

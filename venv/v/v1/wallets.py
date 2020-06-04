@@ -187,7 +187,8 @@ class Wallet():
                 if not assets[i] in reciever_wallet[b"assets"]:
                     reciever_wallet[b"assets"][assets[i]] = {b'inputs': [], b'outputs': []}
                 if not assets[i] in sender_wallet[b"assets"]:
-                    sender_wallet["assets"][assets[i].encode()] = {b'inputs': [], b'outputs': []}
+                    ##sender_wallet["assets"][assets[i].encode()] = {b'inputs': [], b'outputs': []}
+                    return False
                 #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
                 reciever_utxi = self.Config.MsgType.UNSPENT_TX.decode() + crypto.Crypto.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2][0], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5][0], ptx_msg[6], ptx_msg[8], ptx_msg[9]))
                 print("Wallet %s reciever_utxi/amount/ptx_hash: %s/%s/%s" % (recipients[i], reciever_utxi, amounts[i], ptx_hash))
@@ -610,19 +611,19 @@ class Wallet():
 
 
     def areTxRecordsExistInTheWallet(self, tx_list, wallet, in_inputs=True, in_outputs=False):#todo msgs,icos...
-        inps = "inputs"
-        outs = "outputs"
+        inps = b"inputs"
+        outs = b"outputs"
         inputs_found = 0
         outputs_found = 0
-        wallet_assets = list(set(wallet["assets"].keys()))
+        wallet_assets = list(set(wallet[b"assets"].keys()))
         for asset in wallet_assets:
             for inp in tx_list:
                 if in_inputs:
-                    if inp in [i for i in wallet['assets'][asset][inps] for i in i]:
+                    if inp in [i for i in wallet[b'assets'][asset][inps] for i in i]:
                         print("Input %s found" % (inp))
                         inputs_found += 1
                 if in_outputs:
-                    if inp in [i for i in wallet['assets'][asset][outs] for i in i]:
+                    if inp in [i for i in wallet[b'assets'][asset][outs] for i in i]:
                         print("Output %s found" % (inp))
                         outputs_found += 1
         if not in_inputs and not in_outputs:
@@ -639,6 +640,7 @@ class Wallet():
 
     def markSpentTxRecordsInTheWallet(self, itx_list, wallet, spent_block_id):
         try:
+            itx_list = list(set(itx_list))
             inps = b"inputs"
             outs = b"outputs"
             assets = b"assets"
@@ -669,6 +671,46 @@ class Wallet():
         except Exception as ex:
             print("Exception wallets markSpentTxRecordsInTheWallet:", ex.__traceback__.tb_lineno, ex)
             return False, wallet, None
+
+
+    def addUtxoToTheWallet(self, asset, ctx_hash, amount, ptx_hash, wallet):
+        try: #todo check duplicate keys
+            inps = b"inputs"
+            outs = b"outputs"
+            assets = b"assets"
+            inputs_found = 0
+            outputs_found = 0
+            wallet_assets = list(set(wallet[assets].keys()))
+            inp_asset = {}
+            inp_ptx = {}
+            block_chain_updates = {}
+            print('wallet', wallet)
+            for a in wallet_assets:
+                itx_list = [v for v in wallet[assets][a][inps] for v in v]
+                otx_list = [v for v in wallet[assets][a][outs] for v in v]
+                itxs = [t for t in itx_list if t == "+" + ctx_hash]
+                otxs = [t for t in itx_list if t == "-" + ctx_hash]
+                if self.Db.isDBkey("-" + ctx_hash) or self.Db.isDBkey("+" + ctx_hash) or \
+                        self.Db.isDBkey("*" + ptx_hash) or self.Db.isDBkey("+" + ptx_hash):
+                    raise Exception("Exception wallets Duplicate, Ptx or Ctx are exist in DB")
+                if len(itxs) > 0 or len(otxs) > 0:
+                    raise Exception("Exception wallets Duplicate, Ctx %s already exist in the wallet" % (ctx[1:]))
+                # if ptx[1:] in itxs: #todo
+                #     raise Exception("Exception wallets Duplicate Ptx %s already exist in the wallet" % (ptx[1:]))
+
+                if not self.Db.isDBkey(asset):
+                    raise Exception("Exception wallets Asset %s DOESN'T exist" % asset)
+                if not Decimal(amount) > 0:
+                    raise Exception("Exception wallets Invalid Amount %s format" % amount)
+                wallet[assets][asset][inps].append(["+" + ctx_hash, amount.encode(), "*" + ptx_hash])
+
+
+            return wallet
+        except Exception as ex:
+            print("Exception wallets addUtxoToTheWallet:", ex.__traceback__.tb_lineno, ex)
+            print("Exception wallet", wallet)
+            return None
+
 
     def updateDbWallet(self, pub_addr):
         pass

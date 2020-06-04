@@ -1,5 +1,5 @@
+import os, sys, logging
 from msgpack import packb, unpackb
-import os, logging
 import time, socket, zmq
 from time import sleep
 import threading
@@ -17,7 +17,6 @@ class Node():
         self.Config = config.Config
         self.version = self.Config.VERSION
         self.Utils = utils.Utils()
-        #self.TASKS = self.Utils.Task()
         self.TASKS = self.Task()
         self.Crypto = crypto.Crypto()
         self.Net = network.Network()
@@ -284,6 +283,7 @@ class Node():
                                 prev_block_hash = ublock[3]
                                 msg_type = m[3]
                                 msg_priority = m[-2]
+                                block_id = "B" + signed_msg_hash
                                 # print("ublock: %s\n%s\n" % (ublock, [unpackb(inp[2][2])[2] for inp in [m for m in ublock[4]]])) #[unpackb(inp[2][2])[2] for inp in [m for m in ublock[4]]] [inp[2] for inp in [m for m in ublock[4]]]
                                 ##print("Duplicates found in Block = %s" % len(ublock[4]) == len(set(ublock[4])))
                                 print("self.DB.getDbRec(prev_block_hash)", prev_block_hash, self.DB.getDbRec(prev_block_hash))
@@ -313,163 +313,205 @@ class Node():
                                 print(verified_sql)
                                 verified_msgs = self.SDB.queryServiceDB(verified_sql)
 
+                                # for mm in verified_msgs:
+                                #     print(mm)
+                                # sys.exit(0)
+
                                 block_senders_wallets = []
                                 block_recievers_wallets = []
+                                msg_ctxs = []
                                 ptxs_count = len(block_msg_hashes)  # (ublock[4])
                                 print(verified_msgs)
                                 for i in range(ptxs_count):
                                     msg_sender_wallet = "W" + self.Crypto.to_HMAC(verified_msgs[i][3])  # .encode()
-                                    if not msg_sender_wallet in block_persist_msgs.keys():  # block_senders_wallets.keys():
+
+                                    # sdb_ptx = self.DB.getDbRec(m_hash) #todo verify MsgType
+                                    # if sdb_ptx is None:
+                                    #     raise Exception(m_hash + "Not Exist in SDB")
+                                    # sdb_ptx_verified, sdb_ptx_bin = self.Crypto.verifyMsgSig(signed_msg, signed_msg[-32:])
+                                    # assert sdb_ptx_verified
+                                    # sdb_ptx_u = unpackb(sdb_ptx_bin)
+                                    # assert self.Tx.verifyMsg(sdb_ptx_bin, sdb_ptx_u)
+                                    # assert self.Wallets.insertTxsToDbWallets(sdb_ptx_u, m_hash, block_id)
+                                    # sys.exit(0)
+
+                                if not msg_sender_wallet in block_persist_msgs.keys():  # block_senders_wallets.keys():
                                         msg_sender_wallet_data = self.Wallets.getDbWalletDefault(msg_sender_wallet)
-                                        block_senders_wallets.append \
-                                            (msg_sender_wallet) # [msg_sender_wallet] = msg_sender_wallet_data
+                                        block_senders_wallets.append(msg_sender_wallet) # [msg_sender_wallet] = msg_sender_wallet_data
                                         block_persist_msgs[msg_sender_wallet] = msg_sender_wallet_data
-                                    else:
-                                        raise Exception("Only 1 PTX permitted per block")  # todo msgType
+
+                                else:
+                                    raise Exception("Only 1 PTX/ permitted per Sender in block")  # todo msgType
                                     #TODO msg=PTX?
-                                    msg_inputs_ids = list(set([inp.decode() for inp in [itx[2]
+                                msg_inputs_ids = list(set([inp.decode() for inp in [itx[2]
                                             for itx in [unpackb(m) for m in unpackb(
                                             verified_msgs[i][2])[2]]] for inp in inp]))  # todo validate calc vs submitted or ignore? in-msg ctx hashes
-                                    print('Msg inputs hashes: ', len(msg_inputs_ids), msg_inputs_ids)
-                                    marked_spent_itxs, updated_wallet, db_updates = self.Wallets.markSpentTxRecordsInTheWallet \
+                                print('Msg inputs hashes: ', len(msg_inputs_ids), msg_inputs_ids)
+                                marked_spent_itxs, updated_wallet, db_updates = self.Wallets.markSpentTxRecordsInTheWallet \
                                         (msg_inputs_ids, block_persist_msgs[msg_sender_wallet], "B" + signed_msg_hash)
-                                    if not marked_spent_itxs or db_updates is None:
-                                        raise Exception("All/Some inputs \n%s\n are missing in the Wallet %s" %
+                                if not marked_spent_itxs or db_updates is None:
+                                    raise Exception("Exception node All/Some inputs \n%s\n are missing in the Wallet %s" %
                                         (msg_inputs_ids, msg_sender_wallet))
 
-                                    # block_senders_wallets[msg_sender_wallet] = updated_wallet
-                                    block_persist_msgs[msg_sender_wallet] = updated_wallet
-                                    block_persist_msgs = {**block_persist_msgs, **db_updates}
+                                # block_senders_wallets[msg_sender_wallet] = updated_wallet
+                                block_persist_msgs[msg_sender_wallet] = updated_wallet
+                                block_persist_msgs = {**block_persist_msgs, **db_updates}
                                     ##for k, v in db_updates.items():
                                     ##    block_persist_msgs[k] = v
 
-                                    msg_ctxs = [unpackb(m) for m in unpackb(verified_msgs[i][2])[2]]
-                                    ctx_receivers_wallets = [r_w[3] for r_w in msg_ctxs]
-                                    ctx_assets = [r_w[4] for r_w in msg_ctxs]
-                                    ctx_assets_u = set(ctx_assets)
-                                    ctx_receivers_wallets = [w.decode() if isinstance(w, bytes) else w for w in
+                                msg_ctxs = [unpackb(m) for m in unpackb(verified_msgs[i][2])[2]]
+                                ctx_receivers_wallets = [r_w[3] for r_w in msg_ctxs]
+                                ctx_assets = [r_w[4] for r_w in msg_ctxs]
+                                for a in set(ctx_assets):
+                                    if not self.DB.isDBkey(a):
+                                        raise Exception("Exception node block %s asset is NOT Exist in DB" % a.decode())
+                                ctx_assets_u = set(ctx_assets)
+                                ctx_receivers_wallets = [w.decode() if isinstance(w, bytes) else w for w in
                                                              ctx_receivers_wallets]
-                                    for wallet in ctx_receivers_wallets:
-                                        if not wallet in block_persist_msgs:  # block_recievers_wallets.keys():
+                                for wallet in ctx_receivers_wallets:
+                                    if not wallet in block_persist_msgs:  # block_recievers_wallets.keys():
                                             ##wallet = wallet.encode() if isinstance(wallet, str) else wallet
                                             ##block_recievers_wallets[wallet] = (tools.getDbWalletDefault(wallet))
-                                            block_persist_msgs[wallet] = self.Wallets.getDbWalletDefault(wallet)
-                                            block_recievers_wallets.append(wallet)
+                                        block_persist_msgs[wallet] = self.Wallets.getDbWalletDefault(wallet)
+                                        block_recievers_wallets.append(wallet)
 
-                                    msg_ctxs_pubkeys = [m[2] for m in verified_msgs]
-                                    ptx_hash = block_msg_hashes[i]
-                                    for m in range(len(msg_ctxs)):
-                                        ctx_hash = self.Crypto.to_HMAC(packb((msg_ctxs[m], msg_ctxs_pubkeys[0])))
-                                        ctx_msg = packb((msg_ctxs[m], msg_ctxs_pubkeys[0]))
-                                        ctx_reciever = msg_ctxs[m][3].decode() if isinstance(msg_ctxs[m][3], bytes) else \
-                                        msg_ctxs[m][3]
-                                        ctx_asset = msg_ctxs[m][4]
-                                        ctx_asset_amount = Decimal(msg_ctxs[m][
-                                                                       5].decode())  # todo to_miner_pool fee + Decimal(msg_ctxs[m][6].decode())
+                                msg_ctxs_pubkeys = [m[2] for m in verified_msgs]
+                                ptx_hash = block_msg_hashes[i]
+                                print("block_msg ptx_hash" , type(ptx_hash), ptx_hash)
+
+                                for m in range(len(msg_ctxs)):
+                                    ctx_hash = self.Crypto.to_HMAC(packb((msg_ctxs[m], msg_ctxs_pubkeys[0])))
+                                    ctx_msg = packb((msg_ctxs[m], msg_ctxs_pubkeys[0]))
+                                    ctx_reciever = msg_ctxs[m][3].decode() if isinstance(msg_ctxs[m][3], bytes) else \
+                                    msg_ctxs[m][3]
+                                    ctx_asset = msg_ctxs[m][4]
+                                    ctx_asset_amount = Decimal(msg_ctxs[m][5].decode())  # todo to_miner_pool fee + Decimal(msg_ctxs[m][6].decode())
                                         ##block_recievers_wallets = [b.decode() if isinstance(b, bytes) else b for b in block_recievers_wallets]
-                                        if not ctx_reciever in block_persist_msgs:  # block_recievers_wallets:
-                                            raise Exception(
-                                                "CTX reciever %s doesnt exist in block_recievers_wallets" % ctx_reciever)
-                                            block_persist_msgs[ctx_reciever]["assets"][ctx_asset]["inputs"].append(
-                                            ["+" + ctx_hash, str(ctx_asset_amount).encode(), "+" + ptx_hash])
-                                        # block_persist_msgs["*" + ctx_hash] = ctx_msgblock_recievers_wallets
-                                        block_persist_msgs["+" + ctx_hash] = "+" + ptx_hash
-                                        ##block_persist_msgs[ctx_reciever] = block_recievers_wallets[ctx_reciever]
-                                        print("Block %s PTX: %s \nInputs: %s \nCTX: %s \nMsg: %s " % (
+                                        # if ctx_reciever != wallet:
+                                        #     continue
+                                       #todo redundant?
+                                        # if not ctx_reciever in block_persist_msgs:  # block_recievers_wallets:
+                                        #     #raise Exception("CTX reciever %s doesnt exist in block_recievers_wallets" % ctx_reciever)
+                                        #      block_persist_msgs[ctx_reciever] = self.Wallets.getDbWalletDefault(ctx_reciever)
+                                        #      print("ctx_reciever", ctx_reciever, block_persist_msgs[ctx_reciever])
+
+                                        # block_persist_msgs[ctx_reciever][b"assets"][ctx_asset][b"inputs"].append(
+                                        #     ["+" + ctx_hash, str(ctx_asset_amount).encode(), "+" + ptx_hash])
+                                        # block_persist_msgs["+" + ctx_hash] = "+" + ptx_hash
+                                        #assert not block_persist_msgs[ctx_reciever] is None
+                                    if block_persist_msgs[ctx_reciever] is None:
+                                        raise Exception("Exception node ctx_reciever not found in Q", ctx_reciever, block_persist_msgs)
+                                    block_persist_msgs[ctx_reciever] = self.Wallets.addUtxoToTheWallet(ctx_asset, ctx_hash, str(ctx_asset_amount), ptx_hash, block_persist_msgs[ctx_reciever])
+                                    assert not block_persist_msgs[ctx_reciever] is None
+                                    block_persist_msgs["+" + ctx_hash] = packb("*" + ptx_hash)
+                                    print("Wallet ctx_reciever", ctx_reciever, block_persist_msgs[ctx_reciever])
+
+                                    print("Block %s PTX: %s \nInputs: %s \nCTX: %s \nMsg: %s " % (
                                         "B" + signed_msg_hash, ptx_hash, msg_inputs_ids, ctx_hash, msg_ctxs[m]))
-                                    # todo 1outer level +bin-msg
+
+                                    print("signed_ptx", verified_msgs[i][1])
                                     block_persist_msgs["+" + ptx_hash] = "B" + signed_msg_hash
-                                    block_persist_msgs["*" + ptx_hash] = verified_msgs[i][1]
+                                    block_persist_msgs["*" + ptx_hash] = packb(verified_msgs[i][1]) #signed_ptxN
+
+
+                                block_persist_msgs[block_id] = packb(smsg)
 
                                 print("Block %s msg_hashes: %s %s" % (
                                 signed_msg_hash, len(block_msg_hashes), block_msg_hashes))
                                 print("%s (msg/ptx) inputs: %s" % (ptxs_count, msg_ctxs))
 
+                                print("block_persist_msgs", block_persist_msgs)
+                                assert self.DB.insertDbBatchFromDict(block_persist_msgs)
+                                sys.exit(0)
+
                                 # Todo add to blockBatch
                                 # Block is valid and msgs already verified!!!
-                                print('msg[1]', msg[1])
-                                self.SDB.saveSdbVerifiedMsg(signed_msg_hash, msg[1], blockMsg, pubk, msg_type,
-                                                         msg_priority)
-                                # TODO
-                                print("TODO######Update Wallets#####wallets state+ block_hash######")
-                                self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
-                                # TODO raise exception/ignore if there are missing transactions, invalid...
+                                # print('msg[1]', msg[1])
+                                # self.SDB.saveSdbVerifiedMsg(signed_msg_hash, msg[1], blockMsg, pubk, msg_type,
+                                #                          msg_priority)
+                                # # TODO
+                                # print("TODO######Update Wallets#####wallets state+ block_hash######")
+                                # self.TASKS.deleteSdbVerifiedMsqQ.add(signed_msg_hash)
+                                # # TODO raise exception/ignore if there are missing transactions, invalid...
+                                #
+                                # block_msg_hashes.append(signed_msg_hash)
+                                # # todo? change saving blockchain verified_msg into signed_msg -> Sig 1000request/sec WebLoad
+                                # # todo currently ptxs only
+                                # verified_sql = "select * from v1_verified_msg where signed_msg_hash in (%s)" % (
+                                #     ",".join(["'%s'" % m for m in block_msg_hashes]))
+                                #
+                                # block_ptx_inputs = set()
+                                # block_senders = set()
+                                # try:
+                                #     for msg in verified_msgs:  # todo redo validation hash(msg,pubk)
+                                #         umsg = unpackb(msg[2])
+                                #         # msg_sender_wallet = b"W" + self.Crypto.to_HMAC(umsg[-1]).encode()
+                                #         # msg_sender_wallet_data = tools.getDbWalletDefault(msg_sender_wallet)
+                                #         # block_senders_wallets[msg_sender_wallet] = msg_sender_wallet_data
+                                #         # if msg_sender_wallet in block_senders_wallets.keys(): #block_senders:
+                                #         #    raise Exception("Only 1 PTX permitted pre block")
+                                #         # block_senders.add(msg_sender_wallet.encode())
+                                #
+                                #         msg_receivers_wallets = umsg[3]
+                                #         for wallet in msg_receivers_wallets:
+                                #             if not wallet in block_persist_msgs.keys():
+                                #                 msg_receiver_wallet_data = self.Wallets.getDbWalletDefault(wallet)
+                                #                 block_recievers_wallets.append(wallet)
+                                #                 block_persist_msgs[wallet] = msg_receiver_wallet_data
+                                #
+                                #         # block_senders_amounts[msg_sender_wallet] = tools.WALLET.getDbWalletUnspentAmounts(msg_sender_wallet)
+                                #         # print("msg_sender_wallet", msg_sender_wallet, tools.WALLET.getDbWalletUnspentAmounts(msg_sender_wallet))
+                                #             itx_list_u = set([item for item in [unpackb(itx)[2] for itx in umsg[2]] for item in item])
+                                #         ##ptx_assets = [unpackb(itx)[4] for itx in umsg[2]]
+                                #             print("PTX itx_list_u", itx_list_u)
+                                #             for itx in itx_list_u:
+                                #                 # if itx in block_ptx_inputs:  # duplicate
+                                #                 #     raise Exception("PTX Duplicate Inputs/Spendings")
+                                #                 block_ptx_inputs.add(itx)
+                                #                 # if len(block_ptx_inputs) == 0:
+                                #                 #     raise Exception("PTX Missing Inputs")
+                                #
+                                #                 save_itx = itx[1:] if isinstance(itx[1:], str) else itx[1:].decode()
+                                #                 print('save_itx', save_itx, "B" + signed_msg_hash)
+                                #                 block_persist_msgs["-" + save_itx] = "B" + signed_msg_hash
+                                #                 # todo to continue last
+                                #
+                                #             print("block_ptx_inputs", block_ptx_inputs)
+                                #             msg_bin = packb((msg[1], msg[2]))
+                                #             msg_hash = msg[0]  # todo recalc hash validation
+                                #             block_persist_msgs["*" + msg_hash] = msg_bin
+                                #         if len(block_persist_msgs) == 0:
+                                #             raise Exception('Block missing PTXs/msgs?')
+                                #         if len(set(block_senders_wallets)) != ptxs_count:
+                                #             raise Exception("Block Permits 1 PTX per Wallet")
+                                #         block_persist_msgs["B" + signed_msg_hash] = blockMsg  # add blockMsg itself
+                                #     # block_persist_wallets = {}
+                                #     ##print("DB_Batch: ", block_persist_msgs)  # .keys())
+                                #     # print("#####TODO -outer in start BlockCalcPtxHash #1",
+                                #     #       self.Crypto.to_HMAC(packb((verified_msgs[0][1], (verified_msgs[0][3])))))
+                                #     ##assert self.DB.insertDbBatchFromDict(block_persist_msgs)
+                                #     # for k,v in block_persist_msgs.items():
+                                #     #     self.DB.addToBatch([k, v])
+                                #     # self.DB.writeBatch()
+                                #     print('block_persist_msgs', block_persist_msgs)
+                                #
+                                #     # tools.SERVICE_DB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
+                                #     # block_persist_msgs = {}
+                                #     # verify_q = []
+                                #     print("%s Block deleteSdb Pending and Verified Msgs" % now)
+                                #     self.SDB.deleteSdbPendingMsgsIfVerified()
+                                #     self.SDB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
+                                #     self.SDB.deleteBlockSdbVerifiedMsgs([signed_msg_hash])  # del verified block
+                                # except Exception as ex:
+                                #     self.SDB.deleteSdbPendingMsgsIfVerified()
+                                #     print("Block Exception: ", ex.__traceback__.tb_lineno, ex)
+                                #     # continue #proceed to next msg
+                                #     block_persist_msgs = {}
+                                #     block_senders_wallets = []
+                                #     block_recievers_wallets = []
+                                #     raise Exception("Block Exception: ", ex)
+                                ##assert self.DB.insertDbBatchFromDict(block_persist_msgs)
 
-                                block_msg_hashes.append(signed_msg_hash)
-                                # todo? change saving blockchain verified_msg into signed_msg -> Sig 1000request/sec WebLoad
-                                # todo currently ptxs only
-                                verified_sql = "select * from v1_verified_msg where signed_msg_hash in (%s)" % (
-                                    ",".join(["'%s'" % m for m in block_msg_hashes]))
-
-                                block_ptx_inputs = set()
-                                block_senders = set()
-                                try:
-                                    for msg in verified_msgs:  # todo redo validation hash(msg,pubk)
-                                        umsg = unpackb(msg[2])
-                                        # msg_sender_wallet = b"W" + self.Crypto.to_HMAC(umsg[-1]).encode()
-                                        # msg_sender_wallet_data = tools.getDbWalletDefault(msg_sender_wallet)
-                                        # block_senders_wallets[msg_sender_wallet] = msg_sender_wallet_data
-                                        # if msg_sender_wallet in block_senders_wallets.keys(): #block_senders:
-                                        #    raise Exception("Only 1 PTX permitted pre block")
-                                        # block_senders.add(msg_sender_wallet.encode())
-
-                                        msg_receivers_wallets = umsg[3]
-                                        for wallet in msg_receivers_wallets:
-                                            if not wallet in block_persist_msgs.keys():
-                                                msg_receiver_wallet_data = self.Wallets.getDbWalletDefault(wallet)
-                                                block_recievers_wallets.append(
-                                                    wallet)  # [wallet] = msg_receiver_wallet_data
-                                                block_persist_msgs[wallet] = msg_receiver_wallet_data
-
-                                        # block_senders_amounts[msg_sender_wallet] = tools.WALLET.getDbWalletUnspentAmounts(msg_sender_wallet)
-                                        # print("msg_sender_wallet", msg_sender_wallet, tools.WALLET.getDbWalletUnspentAmounts(msg_sender_wallet))
-                                        itx_list_u = set(
-                                            [item for item in [unpackb(itx)[2] for itx in umsg[2]] for item in item])
-                                        ##ptx_assets = [unpackb(itx)[4] for itx in umsg[2]]
-                                        print("PTX itx_list_u", itx_list_u)
-                                        for itx in itx_list_u:
-                                            if itx in block_ptx_inputs:  # duplicate
-                                                raise Exception("PTX Duplicate Inputs/Spendings")
-                                            block_ptx_inputs.add(itx)
-                                            if len(block_ptx_inputs) == 0:
-                                                raise Exception("PTX Missing Inputs")
-
-                                            save_itx = itx[1:] if isinstance(itx[1:], str) else itx[1:].decode()
-                                            print('save_itx', save_itx, "B" + signed_msg_hash)
-                                            block_persist_msgs["-" + save_itx] = "B" + signed_msg_hash
-                                            # todo to continue last
-
-                                        print("block_ptx_inputs", block_ptx_inputs)
-                                        msg_bin = packb((msg[1], msg[2]))
-                                        msg_hash = msg[0]  # todo recalc hash validation
-                                        block_persist_msgs["*" + msg_hash] = msg_bin
-                                    if len(block_persist_msgs) == 0:
-                                        raise Exception('Block missing PTXs/msgs?')
-                                    if len(set(block_senders_wallets)) != ptxs_count:
-                                        raise Exception("Block Permits 1 PTX per Wallet")
-                                    block_persist_msgs["B" + signed_msg_hash] = blockMsg  # add blockMsg itself
-                                    # block_persist_wallets = {}
-                                    print("DB_Batch: ", block_persist_msgs)  # .keys())
-                                    print("#####TODO -outer in start BlockCalcPtxHash #1",
-                                          self.Crypto.to_HMAC(packb((verified_msgs[0][1], (verified_msgs[0][3])))))
-                                    self.DB.insertDbBatchFromDict(block_persist_msgs)
-                                    print('block_persist_msgs', block_persist_msgs)
-                                    # tools.SERVICE_DB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
-                                    # block_persist_msgs = {}
-                                    # verify_q = []
-                                    print("%s Block deleteSdb Pending and Verified Msgs" % now)
-                                    self.SDB.deleteSdbPendingMsgsIfVerified()
-                                    self.SDB.deleteBlockSdbVerifiedMsgs(block_persist_msgs.keys())
-                                    self.SDB.deleteBlockSdbVerifiedMsgs([signed_msg_hash])  # del verified block
-                                except Exception as ex:
-                                    self.SDB.deleteSdbPendingMsgsIfVerified()
-                                    print("Block Exception: ", ex.__traceback__.tb_lineno, ex)
-                                    # continue #proceed to next msg
-                                    block_persist_msgs = {}
-                                    block_senders_wallets = []
-                                    block_recievers_wallets = []
-                                    raise Exception("Block Exception: ", ex)
-                                    pass
                                     # todo time<=blockchain time for each msg
 
                                 # for ptx_input in ptx_inputs:
