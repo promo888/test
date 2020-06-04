@@ -275,6 +275,7 @@ class Node():
                             if msg[0] == self.Config.MsgType.BLOCK_MSG:
                                 msg_list = set()
                                 block_persist_msgs = {}
+                                block_delete_msgs = set()
                                 # todo change in block write ->bin msg
                                 smsg = msg[1]
                                 ##assert signed_msg_hash == self.Crypto.to_HMAC(block_bin[1])  # DON'T REMOVE [msg,sig] correct hmac validation
@@ -378,7 +379,7 @@ class Node():
                                 msg_ctxs_pubkeys = [m[2] for m in verified_msgs]
                                 ptx_hash = block_msg_hashes[i]
                                 print("block_msg ptx_hash" , type(ptx_hash), ptx_hash)
-
+##                                raise Exception("test")
                                 for m in range(len(msg_ctxs)):
                                     ctx_hash = self.Crypto.to_HMAC(packb((msg_ctxs[m], msg_ctxs_pubkeys[0])))
                                     ctx_msg = packb((msg_ctxs[m], msg_ctxs_pubkeys[0]))
@@ -386,23 +387,11 @@ class Node():
                                     msg_ctxs[m][3]
                                     ctx_asset = msg_ctxs[m][4]
                                     ctx_asset_amount = Decimal(msg_ctxs[m][5].decode())  # todo to_miner_pool fee + Decimal(msg_ctxs[m][6].decode())
-                                        ##block_recievers_wallets = [b.decode() if isinstance(b, bytes) else b for b in block_recievers_wallets]
-                                        # if ctx_reciever != wallet:
-                                        #     continue
-                                       #todo redundant?
-                                        # if not ctx_reciever in block_persist_msgs:  # block_recievers_wallets:
-                                        #     #raise Exception("CTX reciever %s doesnt exist in block_recievers_wallets" % ctx_reciever)
-                                        #      block_persist_msgs[ctx_reciever] = self.Wallets.getDbWalletDefault(ctx_reciever)
-                                        #      print("ctx_reciever", ctx_reciever, block_persist_msgs[ctx_reciever])
 
-                                        # block_persist_msgs[ctx_reciever][b"assets"][ctx_asset][b"inputs"].append(
-                                        #     ["+" + ctx_hash, str(ctx_asset_amount).encode(), "+" + ptx_hash])
-                                        # block_persist_msgs["+" + ctx_hash] = "+" + ptx_hash
-                                        #assert not block_persist_msgs[ctx_reciever] is None
                                     if block_persist_msgs[ctx_reciever] is None:
                                         raise Exception("Exception node ctx_reciever not found in Q", ctx_reciever, block_persist_msgs)
                                     block_persist_msgs[ctx_reciever] = self.Wallets.addUtxoToTheWallet(ctx_asset, ctx_hash, str(ctx_asset_amount), ptx_hash, block_persist_msgs[ctx_reciever])
-                                    assert not block_persist_msgs[ctx_reciever] is None
+                                    assert ctx_reciever in block_persist_msgs and not block_persist_msgs[ctx_reciever] is None
                                     block_persist_msgs["+" + ctx_hash] = packb("*" + ptx_hash)
                                     print("Wallet ctx_reciever", ctx_reciever, block_persist_msgs[ctx_reciever])
 
@@ -412,7 +401,7 @@ class Node():
                                     print("signed_ptx", verified_msgs[i][1])
                                     block_persist_msgs["+" + ptx_hash] = "B" + signed_msg_hash
                                     block_persist_msgs["*" + ptx_hash] = packb(verified_msgs[i][1]) #signed_ptxN
-
+                                block_delete_msgs.add(ptx_hash)
 
                                 block_persist_msgs[block_id] = packb(smsg)
 
@@ -422,7 +411,10 @@ class Node():
 
                                 print("block_persist_msgs", block_persist_msgs)
                                 assert self.DB.insertDbBatchFromDict(block_persist_msgs)
-                                sys.exit(0)
+                                #sys.exit(0)
+                                #raise Exception("Test")
+                                self.SDB.deleteBlockSdbVerifiedMsgs(list(block_delete_msgs))
+
 
                                 # Todo add to blockBatch
                                 # Block is valid and msgs already verified!!!

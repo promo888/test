@@ -674,6 +674,7 @@ class Wallet():
 
 
     def addUtxoToTheWallet(self, asset, ctx_hash, amount, ptx_hash, wallet):
+
         try: #todo check duplicate keys
             inps = b"inputs"
             outs = b"outputs"

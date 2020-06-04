@@ -209,7 +209,7 @@ class ServiceDb():
 
     def deleteBlockSdbVerifiedMsgs(self, hash_list):
         try:
-            sql = "delete from v1_verified_msg where signed_msg_hash in (%s)" % ",".join(["'%s'" % (hash_id[1:] if isinstance(hash_id, str) else hash_id.decode()) for hash_id in hash_list])
+            sql = "delete from v1_verified_msg where signed_msg_hash in (%s)" % ",".join(["'%s'" % (hash_id if isinstance(hash_id, str) else hash_id.decode()) for hash_id in hash_list])
             print("deleteBlockSdbVerifiedMsgsSql: %s\n ids: %s" % (sql, hash_list))
             self.queryServiceDB(sql)
         except Exception as ex:
