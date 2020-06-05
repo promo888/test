@@ -689,22 +689,19 @@ class Wallet():
             for a in wallet_assets:
                 itx_list = [v for v in wallet[assets][a][inps] for v in v]
                 otx_list = [v for v in wallet[assets][a][outs] for v in v]
-                itxs = [t for t in itx_list if t == "+" + ctx_hash]
+                itxs = [t for t in itx_list if t == "+" + ctx_hash or \
+                        t == "*" + ptx_hash or t == "+" + ptx_hash]
                 otxs = [t for t in itx_list if t == "-" + ctx_hash]
                 if self.Db.isDBkey("-" + ctx_hash) or self.Db.isDBkey("+" + ctx_hash) or \
                         self.Db.isDBkey("*" + ptx_hash) or self.Db.isDBkey("+" + ptx_hash):
-                    raise Exception("Exception wallets Duplicate, Ptx or Ctx are exist in DB")
+                    raise Exception("Exception wallets Duplicate, Ptx %s or Ctx %s are exist in DB" % (ctx_hash, ptx_hash))
                 if len(itxs) > 0 or len(otxs) > 0:
-                    raise Exception("Exception wallets Duplicate, Ctx %s already exist in the wallet" % (ctx[1:]))
-                # if ptx[1:] in itxs: #todo
-                #     raise Exception("Exception wallets Duplicate Ptx %s already exist in the wallet" % (ptx[1:]))
-
+                    raise Exception("Exception wallets Duplicate, Ctx %s or Ptx %s already exist in the wallet" % (ctx_hash, ptx_hash))
                 if not self.Db.isDBkey(asset):
                     raise Exception("Exception wallets Asset %s DOESN'T exist" % asset)
                 if not Decimal(amount) > 0:
                     raise Exception("Exception wallets Invalid Amount %s format" % amount)
                 wallet[assets][asset][inps].append(["+" + ctx_hash, amount.encode(), "*" + ptx_hash])
-
 
             return wallet
         except Exception as ex:
