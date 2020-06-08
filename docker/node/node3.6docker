@@ -29,8 +29,9 @@ RUN apt-get update \
   && scp -r leveldb /usr/local/include \
   && ldconfig \
   && git clone https://github.com/promo888/test.git \
-  && cd test/venv/v/v1 \
+  && cd test/venv/v \
   && ls \
+  && python3 -V \
   && python3 v1.py
 
 EXPOSE 4444
