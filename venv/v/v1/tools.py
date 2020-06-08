@@ -2,7 +2,8 @@ import os, sys, time, subprocess, psutil, pkgutil, shutil
 import msgpack as mp
 from msgpack import packb, unpackb
 import json
-import sqlite3, plyvel
+import sqlite3
+import plyvel
 import datetime, time, arrow, configparser
 import logging
 from logging.handlers import RotatingFileHandler
@@ -168,7 +169,7 @@ class Tools():
                 [config.Config.MAIN_COIN, config.Config.MAIN_COIN, config.Config.MAIN_COIN],
                 [b'1', b'1', b'1'], to_addrs)
 
-        ##assert not ptx is None
+        assert not ptx is None
         print("WALLET.createPtx 3 payments - valid PTX : ", ptx)
         smsg = crypto.Crypto.signMsg(ptx, gSK)
         ptx_hash = self.Crypto.to_HMAC(smsg)

@@ -26,7 +26,7 @@ from threading import Timer, TIMEOUT_MAX, Condition
 from multiprocessing import Process #ToDo killPorts+watchdog
 from queue import Queue, PriorityQueue #, Condition
 import enum, math
-from sqlobject import *
+#from sqlobject import *
 
 
 def debug_func(self, func):

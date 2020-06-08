@@ -1,0 +1,57 @@
+https://github.com/docker/docker-py
+https://dev.to/tryexceptpass/designing-continuous-build-systems-docker-swarm-orchestration-5cbg
+
+
+docker swarm init --advertise-addr 192.168.1.300
+docker swarm join-token manager
+docker swarm join-token node
+
+Creating A Docker Image For Angular App
+If all is well, then we can start our Swarm service, provided the Docker Image is built. The Docker image can be built from the Dockerfile. The Dockerfile used to build the applications is below:
+
+FROM node:6
+RUN mkdir -p /usr/src/app
+WORKDIR /usr/src/app
+COPY package.json /usr/src/app
+RUN npm cache clean
+RUN npm install
+COPY . /usr/src/app
+EXPOSE 4200
+CMD ["npm","start"]
+
+Dockerfile
+docker build -t angular-image .
+
+docker service create --name "Angular-App-Container" -p 4200:4200 angular-image
+docker service ls
+docker service ps Angular-App-Container
+docker ps
+docker node ls
+docker node ps
+
+
+
+sudo apt-get install libsnappy-dev
+wget https://leveldb.googlecode.com/files/leveldb-1.9.0.tar.gz
+tar -xzf leveldb-1.9.0.tar.gz
+cd leveldb-1.9.0
+make
+sudo mv libleveldb.* /usr/local/lib
+cd include
+sudo cp -R leveldb /usr/local/include
+sudo ldconfig
+
+sudo apt-get install libsnappy-dev
+export VER="1.20"
+wget https://github.com/google/leveldb/archive/v${VER}.tar.gz
+tar xvf v${VER}.tar.gz
+rm -f v${VER}.tar.gz
+cd leveldb-${VER}
+make
+sudo scp -r out-static/lib* out-shared/lib* "/usr/local/lib"
+cd include
+sudo scp -r leveldb /usr/local/include
+sudo ldconfig
+
+docker run -it --rm --name my_python3.7 python:3.7-alpine3.9
+https://hub.docker.com/_/python

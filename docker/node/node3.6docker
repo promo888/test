@@ -1,0 +1,53 @@
+FROM ubuntu: latest
+#alpine:3.8
+#ubuntu:latest
+ENV LEVELDB_VER = 1.20
+ENV LEVELDB_LINK = /usr/local/lib
+ENV PYTHON_VER = 3.6
+
+
+#RUN apt-get install -y build-essential python3.6 python3.6-dev python3-pip python3.6-venv
+# update pip
+#RUN python3.6 -m pip install pip --upgrade
+#RUN python3.6 -m pip install wheel
+# && python3.6 python3.6-dev python3-pip python3.6-venv \
+
+RUN apt-get update \
+  && apt-get install -y \
+  && libsnappy-dev -y libsodium-dev build-essential git wget curl tar \
+  && python3.6 python3.6-dev python3-pip python3.6-venv \
+  && ln -s /usr/bin/python3.6 python3 \
+  && pip install --upgrade pip \
+  && pip install msgpack pysqlite3 plyvel arrow zmq pyzmq Crypto nacl PyNaCl \
+  && wget https://github.com/google/leveldb/archive/v1.20.tar.gz \
+  && tar xvf v1.20.tar.gz \
+  && rm -f v1.20.tar.gz \
+  && cd leveldb-1.20 \
+  && make \
+  && scp -r out-static/lib* out-shared/lib* '/usr/local/lib' \
+  && cd include \
+  && scp -r leveldb /usr/local/include \
+  && ldconfig \
+  && git clone https://github.com/promo888/test.git \
+  && cd test/venv/v/v1 \
+  && ls \
+  && python3 v1.py
+
+EXPOSE 4444
+EXPOSE 5555
+EXPOSE 55555
+EXPOSE 6666
+EXPOSE 7777
+EXPOSE 8888
+EXPOSE 9999
+EXPOSE 80
+
+#RUN["/bin/bash", "ls"]
+
+ENTRYPOINT ["/bin/bash"]
+#CMD /bin/bash
+#"python3"
+#docker build -t imagename:imagetag -f /tmp/mydockerfile context_dir
+#sudo docker build -t fxcrypto:miner0 -f ./Dockerfile ./../node_data
+#python missing: nacl sqlite3 asyncio aiohttp
+#libsnappy-dev -y libsodium-dev build-essential git

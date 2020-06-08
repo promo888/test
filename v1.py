@@ -1,4 +1,4 @@
-import os, sys, subprocess, psutil, pkgutil
+import os, sys, subprocess #, psutil, pkgutil
 import msgpack as mp
 import sqlite3, plyvel #leveldb
 import datetime, time, configparser
@@ -16,7 +16,8 @@ from nacl.signing import SigningKey, VerifyKey, SignedMessage
 from Crypto.Hash import SHA256, HMAC, RIPEMD
 from decimal import Decimal
 
-import time, socket, zmq, asyncio
+import time, socket, zmq
+import  asyncio
 from time import sleep
 import threading
 from multiprocessing import Process #ToDo killPorts+watchdog
