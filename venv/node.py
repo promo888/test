@@ -63,7 +63,7 @@ def init_server(type):
            # print('Message[' + addr[0] + ':' + str(addr[1]) + '] - ') # + data.strip())
 
 
-   if type is 'pub':
+   if type == 'pub':
        pub_socket = context.socket(zmq.PUB)
        pub_socket.bind("tcp://*:%s" % PORT_PUB)
        print('Starting PUB server tcp://localhost:%s' % PORT_PUB, flush=True)
@@ -76,7 +76,7 @@ def init_server(type):
                print('PUB Exception: %s' % ex, flush=True)
                #TODO logger
 
-   if type is 'sub':
+   if type == 'sub':
        sub_socket = context.socket(zmq.SUB)
        sub_socket.connect("tcp://localhost:%s" % PORT_PUB)
        sub_socket.setsockopt(zmq.SUBSCRIBE, b'')
@@ -88,7 +88,7 @@ def init_server(type):
            if count % 10 == 0: print('sub_msg_count', count)
 
 
-   if type is 'req':
+   if type == 'req':
        req_socket = context.socket(zmq.REQ)
        req_socket.connect("tcp://localhost:%s" % PORT_REP)
        print('Starting REQ server tcp://localhost:%s' % PORT_REP, flush=True)
@@ -103,7 +103,7 @@ def init_server(type):
            #print('REQ response', req_msg_res)
 
 
-   if type is 'udpc':
+   if type == 'udpc':
        udpc_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #test #TODO to remove
        print('Starting UDP client', flush=True)
        msg_count = 0
