@@ -20,21 +20,25 @@ RUN apt-get update \
   && cd include \
   && scp -r leveldb /usr/local/include \
   && ldconfig \
-  && git clone https://github.com/promo888/test.git \
-  && cd test/venv/v \
-  && ls \
-  && python3 v1.py
+#  && git clone https://github.com/promo888/test.git \
+#  && cd test/venv/v \
+#  && ls \
+#  && python3 v1.py
 
-EXPOSE 4444
-EXPOSE 5555
-EXPOSE 55555
-EXPOSE 6666
-EXPOSE 7777
-EXPOSE 8888
-EXPOSE 9999
-EXPOSE 80
+
+#EXPOSE 4444
+#EXPOSE 5555
+#EXPOSE 55555
+#EXPOSE 6666
+#EXPOSE 7777
+#EXPOSE 8888
+#EXPOSE 9999
+#EXPOSE 80
 
 #RUN["/bin/bash", "ls"]
+#RUN mkdir -f test
+#COPY /home/igor/PycharmProjects/test /test
+#RUN cd test/venv/v && ls && python3 v1.py
 
 ENTRYPOINT ["/bin/bash"]
 #CMD /bin/bash
