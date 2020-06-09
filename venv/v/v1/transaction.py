@@ -3,7 +3,7 @@ from msgpack import packb, unpackb
 import sqlite3, plyvel, json
 from queue import PriorityQueue
 # from . import tools
-from v.v1 import logger, config, utils, node, crypto, network, web, \
+from v1 import logger, config, utils, node, crypto, network, web, \
                  sdb, db, wallets, message, block, contract, ico, exchange
 
 class Transaction():

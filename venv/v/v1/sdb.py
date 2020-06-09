@@ -2,7 +2,7 @@ import os, sys
 from msgpack import packb, unpackb
 import sqlite3
 
-from v.v1 import logger, config, node, crypto, network, web, \
+from v1 import logger, config, node, crypto, network, web, \
                  db, transaction, message, block, \
                  contract, ico, exchange, utils
 

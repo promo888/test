@@ -6,7 +6,7 @@ import threading
 from queue import PriorityQueue
 import subprocess
 from decimal import Decimal
-from v.v1 import logger, config, crypto, network, web, \
+from v1 import logger, config, crypto, network, web, \
                  sdb, db, wallets, transaction, message, block, \
                  contract, ico, exchange, utils
 

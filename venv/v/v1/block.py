@@ -3,7 +3,7 @@ from msgpack import packb, unpackb
 from nacl.signing import SigningKey, VerifyKey, SignedMessage
 from Crypto.Hash import SHA256, HMAC
 from decimal import Decimal
-from v.v1 import logger, config, node, crypto, network, web, \
+from v1 import logger, config, node, crypto, network, web, \
                  sdb, db, wallets, transaction, message, \
                  contract, ico, exchange, utils
 

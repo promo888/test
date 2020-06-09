@@ -1,7 +1,7 @@
 #from v.v1 import *
 #from v.v1 import ROOT_DIR, config as C, wallets as W \
 
-from v.v1 import tools
+from v1 import tools
 
 # print("ROOT_DIR", ROOT_DIR)
 # config = C.Config()

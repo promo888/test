@@ -1,7 +1,7 @@
 import os, sys, time, arrow, subprocess
 from Crypto.Hash import SHA256, HMAC
 from msgpack import packb, unpackb
-from v.v1 import logger, config, node, crypto, network, web, \
+from v1 import logger, config, node, crypto, network, web, \
                  sdb, db, wallets, transaction, message, block, \
                  contract, ico, exchange
 

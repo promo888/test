@@ -17,7 +17,7 @@ from queue import Queue, PriorityQueue
 
 ##sys.setrecursionlimit(100)
 
-from v.v1 import logger, config, node, crypto, network, web, \
+from v1 import logger, config, node, crypto, network, web, \
                  sdb, db, wallets, transaction, message, block, \
                  contract, ico, exchange, utils
 

@@ -2,7 +2,7 @@ import os, sys
 from decimal import Decimal
 from msgpack import packb, unpackb
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-from v.v1 import logger, config, node, crypto, network, web, \
+from v1 import logger, config, node, crypto, network, web, \
                  sdb, db, transaction, message, block, \
                  contract, ico, exchange, utils
 

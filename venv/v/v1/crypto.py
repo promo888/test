@@ -6,7 +6,7 @@ import libnacl.sign
 from msgpack import packb, unpackb
 from decimal import Decimal
 #from . import tools
-from v.v1 import logger, config, db, wallets
+from v1 import logger, config, db, wallets
 
 class Crypto():
 
