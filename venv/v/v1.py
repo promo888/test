@@ -11,7 +11,7 @@ from v1 import tools
 
 
 
-from v.v1 import node
+from v1 import node
 
 t = tools.Tools()
 #print(not t.Db.isDBvalue("*29c2bd6eac2b1b1db2e00df221bf783e") and not t.Db.isDBvalue("-29c2bd6eac2b1b1db2e00df221bf783e") and t.Db.isDBvalue("+29c2bd6eac2b1b1db2e00df221bf783e"))
