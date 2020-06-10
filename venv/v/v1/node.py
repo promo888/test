@@ -6,7 +6,7 @@ import threading
 from queue import PriorityQueue
 import subprocess
 from decimal import Decimal
-from v1 import logger, config, crypto, network, web, \
+from v.v1 import logger, config, crypto, network, web, \
                  sdb, db, wallets, transaction, message, block, \
                  contract, ico, exchange, utils
 
@@ -109,7 +109,7 @@ class Node():
     def init_server(self, type):
         # from multiprocessing import Process #ToDo killPorts+watchdog
 
-        if type is 'rep':
+        if type == 'rep':
             context = zmq.Context()
             rep_socket = context.socket(zmq.REP)
             rep_socket.bind("tcp://*:%s" % self.PORT_REP)
@@ -160,7 +160,7 @@ class Node():
                     error = "Sender Not Exist" if wallet_exist is None else error
                     rep_socket.send(b'Error: %s\n' % error.encode())
 
-        if type is 'udps':
+        if type == 'udps':
             udps_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             udps_socket.bind(('', self.PORT_UDP))
             print('Starting UDP server udp://localhost:%s' % self.PORT_UDP, flush=True)
@@ -177,7 +177,7 @@ class Node():
                 udps_socket.sendto(reply, addr)
                 # print('Message[' + addr[0] + ':' + str(addr[1]) + '] - ') # + data.strip()) #ToDo validation on MinersIP + verify
 
-        if type is 'pub':
+        if type == 'pub':
             context = zmq.Context()
             pub_socket = context.socket(zmq.PUB)
             pub_socket.bind("tcp://*:%s" % self.PORT_PUB)
@@ -191,7 +191,7 @@ class Node():
                     print('PUB Exception: %s' % ex, flush=True)
                     # self.logger.logp('Publish Error: ', logging.ERROR, ex)
 
-        if type is 'sub':
+        if type == 'sub':
             context = zmq.Context()
             sub_socket = context.socket(zmq.SUB)
             sub_socket.connect("tcp://localhost:%s" % self.PORT_PUB)
@@ -209,7 +209,7 @@ class Node():
             print('Starting REQ server tcp://localhost:%s' % self.PORT_REP, flush=True)
 
 
-        if type is 'udpc':
+        if type == 'udpc':
             udpc_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # test #TODO to remove
             print('Starting UDP client', flush=True)
 

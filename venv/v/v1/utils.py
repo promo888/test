@@ -1,7 +1,7 @@
 import os, sys, time, arrow, subprocess
 from Crypto.Hash import SHA256, HMAC
 from msgpack import packb, unpackb
-from v1 import logger, config, node, crypto, network, web, \
+from v.v1 import logger, config, node, crypto, network, web, \
                  sdb, db, wallets, transaction, message, block, \
                  contract, ico, exchange
 
@@ -53,6 +53,9 @@ class Utils():
         Utils.deleteDir(config.Config.LOGS_FOLDER)
         Utils.deleteDir(config.Config.WALLETS_FOLDER)
         Utils.mkdir(config.Config.WALLETS_FOLDER) #todo remove test
+        Utils.mkdir(config.Config.NODE_DB_FOLDER)
+        Utils.mkdir(config.Config.NODE_SERVICE_DB_FOLDER)
+        Utils.mkdir(config.Config.LOGS_FOLDER)
 
 
     @staticmethod

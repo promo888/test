@@ -1,4 +1,4 @@
-from v1 import logger, config, db
+from v.v1 import logger, config, db
 
 class Ico():
     def __init__(self):

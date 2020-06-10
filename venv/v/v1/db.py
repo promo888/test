@@ -4,7 +4,7 @@ import plyvel, sqlite3
 import logging
 
 #from . import tools
-from v1 import logger, config
+from v.v1 import logger, config
 
 class Db():
     _db_batch =[]

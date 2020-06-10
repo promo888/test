@@ -2,7 +2,7 @@ import os, sys
 from msgpack import packb, unpackb
 import sqlite3
 
-from v1 import logger, config, node, crypto, network, web, \
+from v.v1 import logger, config, node, crypto, network, web, \
                  db, transaction, message, block, \
                  contract, ico, exchange, utils
 
@@ -76,7 +76,8 @@ class ServiceDb():
             if not os.path.exists(folder):
                 if folder == self.SERVICE_DB_PATH:
                     folder = folder.replace('/service.db', '')
-                os.makedirs(folder)
+                    if not os.path.exists(folder):
+                        os.makedirs(folder)
 
 
     def getServiceDB(self):

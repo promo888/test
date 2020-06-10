@@ -1,6 +1,6 @@
 import zmq
 
-from v1 import logger, config, node, crypto, web, \
+from v.v1 import logger, config, node, crypto, web, \
                  sdb, db, transaction, message, block, \
                  contract, ico, exchange, utils
 
