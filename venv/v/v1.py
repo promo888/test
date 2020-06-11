@@ -1,6 +1,7 @@
-#from v.v1 import *
-#from v.v1 import ROOT_DIR, config as C, wallets as W \
+import sys
+#:~/PycharmProjects/test/venv$ export PYTHONPATH=$PYTHONPATH:`pwd`:/v
 
+print("sys.path:", sys.path)
 from v.v1 import tools
 
 # print("ROOT_DIR", ROOT_DIR)

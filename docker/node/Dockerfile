@@ -1,4 +1,4 @@
-FROM ubuntu:latest
+FROM ubuntu:18.04
 #alpine:3.8
 #ubuntu:latest
 ENV LEVELDB_VER = 1.20
@@ -20,10 +20,13 @@ RUN apt-get update \
   && cd include \
   && scp -r leveldb /usr/local/include \
   && ldconfig \
-#  && git clone https://github.com/promo888/test.git \
-#  && cd test/venv/v \
-#  && ls \
-#  && python3 v1.py
+  && git clone https://github.com/promo888/test.git --branch x250 --single-branch \
+  && cd test/venv \
+  && export PYTHONPATH=$PYTHONPATH:`pwd`:/v \
+  && ls \
+  && cd v && ls && ls v1 \
+  && python3 -V \
+  && python3 v1.py
 
 
 #EXPOSE 4444
