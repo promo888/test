@@ -62,7 +62,7 @@ class Tools():
 
         g_sender_db_wallet = db.Db.getDbKey(g_sender_wallet_id)
         assert not g_sender_db_wallet is None
-        print(unpackb(g_sender_db_wallet)[b'version'], config.Config.VERSION)
+        print(unpackb(g_sender_db_wallet), config.Config.VERSION)
         assert unpackb(g_sender_db_wallet)[b'version'] == config.Config.VERSION
         isAssetCreated = self.Ico.createAsset(config.Config.MAIN_COIN,
                                               ' MainCoin - FxCash ', 128000000000,
