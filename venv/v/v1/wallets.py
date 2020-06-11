@@ -96,7 +96,6 @@ class Wallet():
             return False
         return wallet
 
-
     def getWalletUnspentAssets(self, wallet_id, asset_type=None):
         try:
             wallet_data = self.getDbWallet(wallet_id)
