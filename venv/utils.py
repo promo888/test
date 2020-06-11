@@ -5,7 +5,7 @@ from time import *
 import logging
 from logging.handlers import RotatingFileHandler
 import configparser
-import psutil, subprocess, re
+import subprocess, re
 import datetime, time
 # from fastecdsa import curve, ecdsa, keys
 # from fastecdsa.keys import export_key, import_key
