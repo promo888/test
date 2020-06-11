@@ -88,8 +88,8 @@ class Wallet():
                       {'inputs': [], 'outputs': []}
         wallet = self.Db.getDbKey(wallet_id)
         if wallet is None:
-            wallet_value = {'version': self.Config.MsgType.VERSION, \
-                            'assets': {self.Config.MAIN_COIN: wallet_data}}
+            wallet_value = {b'version': self.Config.MsgType.VERSION, \
+                            b'assets': {self.Config.MAIN_COIN: wallet_data}}
             self.Db.insertDbKv(wallet_id, packb(wallet_value), self.Config.NODE_DB_FOLDER)
         wallet = self.Db.getDbKey(wallet_id)
         if wallet is None:
