@@ -6,11 +6,12 @@ ENV LEVELDB_LINK = /usr/local/lib
 ENV PYTHON_VER = 3.8
 
 RUN apt-get update \
-  && apt-get install -y python3-pip python3-dev libsnappy-dev -y libsodium-dev git wget curl \
+  && apt-get install -y net-tools python3-pip python3-dev libsnappy-dev -y libsodium-dev git wget curl\
   && cd /usr/local/bin \
   && ln -s /usr/bin/python3 python \
   && pip3 install --upgrade pip \
-  && pip3 install msgpack  plyvel arrow zmq pyzmq Crypto PyNaCl \
+#  && python3 -m pip install libnacl \
+  && pip3 install msgpack plyvel zmq pyzmq arrow libnacl pynacl pycrypto Crypto PyNaCl \
   && wget https://github.com/google/leveldb/archive/v1.20.tar.gz \
   && tar xvf v1.20.tar.gz \
   && rm -f v1.20.tar.gz \
