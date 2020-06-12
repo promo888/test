@@ -206,6 +206,7 @@ class Wallet():
                 print("Reciever Wallet:\n", reciever_wallet)
                 sender_wallet = self.getDbWallet(sender_wallet_id)
                 assert sender_wallet
+                print("Appending outputs of asset", assets[i])
                 sender_wallet[b"assets"][assets[i]][b'outputs'].append(
                     [self.Config.MsgType.SPENT_TX + ptx_hash[1:], block_id])
                 self.Db.addToBatch([sender_wallet_id, sender_wallet]) #, override=True)
@@ -215,15 +216,6 @@ class Wallet():
             #TODO to continue, to think of timestamp in block_msg + validation prev amounts, txs? +-5m
             #TODO - supress wallet's redundant bytes: version?->v assets:a inputs:i outputs:o contracts:c msg:m ...etc
 
-            # assets = [{x: wallet[self.ASSSETS][x]} for x in wallet[self.ASSSETS].keys()]
-            # tx_amount = [a for a in tx['amounts']]
-            # if tx['asset_type'] not in tx[self.ASSSETS].keys():
-            #     pass #TODO to continue
-            #     #'{0:.8g}'.format(sum(Decimal(x) for x in d.values()))  '3.9125000'
-            #     # '{0:.8g}'.format(sum(d.values())) # '3.9125'
-            #
-            # wallet[self.INPUTS] += tx[self.INPUTS]
-            # wallet[self.OUTPUTS] += tx[self.OUTPUTS]
             return True #TODO state for blockchain integrity
         except Exception as ex:
             print("Exception wallets.py insertTxsToWallets %s %s" % (ex.__traceback__.tb_lineno, ex))
