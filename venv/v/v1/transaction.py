@@ -433,6 +433,7 @@ class Transaction():
                 inputs_idx = self.TX_MSG_FIELD_INDEX["input_txs"]
                 msg_inputs = list(set([utxi.decode() for utxi in [unpackb(inp)[2] for inp in ptx_msg[2]] for utxi in utxi]))
                     #list(set([j.decode() for j in [i[inputs_idx] for i in ptx_msg[inputs_idx]] for j in j]))
+            print("msg_inputs", msg_inputs)
             for inp in msg_inputs:
 
                 #print("self.DB.isDBvalue? [inp[1:]] %s - %s" % ((inp[1:], self.DB.isDBvalue(inp[1:]))))
