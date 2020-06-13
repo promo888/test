@@ -210,9 +210,9 @@ class Wallet():
                 print("Reciever Wallet:\n", reciever_wallet)
                 sender_wallet = self.getDbWallet(sender_wallet_id)
                 assert sender_wallet
-                print("Appending outputs of asset", assets[i], self.Config.MsgType.SPENT_TX + ptx_hash[1:], block_id])
+                print("Appending outputs of asset", assets[i], self.Config.MsgType.SPENT_TX + ptx_hash[1:], block_id)
                 sender_wallet[b"assets"][assets[i]][b'outputs'].append(
-                    [self.Config.MsgType.SPENT_TX + ptx_hash[1:], block_id)
+                    [self.Config.MsgType.SPENT_TX + ptx_hash[1:], block_id])
                 self.Db.addToBatch([sender_wallet_id, sender_wallet]) #, override=True)
                 print("Payment from %s to wallet %s of  %s %s coins" % (sender_wallet_id, reciever_wallet_id, assets[i], amounts[i]))
                 print("Sender Wallet %s:\n" % sender_wallet_id, sender_wallet)
