@@ -84,8 +84,8 @@ class Wallet():
         #print("CreateWallet pubkey_hash_id: ", pubkey_hash_id)
         wallet_id = self.Config.MsgType.WALLET.decode() + pubkey_hash
         print("Wallet ID: ", wallet_id)
-        wallet_data = {'inputs': [], 'outputs': [], 'outputs_pending': []} if local else \
-                      {'inputs': [], 'outputs': []}
+        wallet_data = {b'inputs': [], b'outputs': [], b'outputs_pending': []} if local else \
+                      {b'inputs': [], b'outputs': []}
         wallet = self.Db.getDbKey(wallet_id)
         if wallet is None:
             wallet_value = {b'version': self.Config.MsgType.VERSION, \
@@ -212,7 +212,7 @@ class Wallet():
                 assert sender_wallet
                 print("sender_wallet", sender_wallet)
                 sender_wallet[b"assets"][assets[i]][b'outputs'].append(
-                    [self.Config.MsgType.SPENT_TX.decode() + ptx_hash[1:], block_id])
+                    [self.Config.MsgType.SPENT_TX + ptx_hash[1:], block_id])
                 self.Db.addToBatch([sender_wallet_id, sender_wallet]) #, override=True)
                 print("Payment from %s to wallet %s of  %s %s coins" % (sender_wallet_id, reciever_wallet_id, assets[i], amounts[i]))
                 print("Sender Wallet %s:\n" % sender_wallet_id, sender_wallet)
