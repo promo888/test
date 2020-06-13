@@ -431,7 +431,7 @@ class Transaction():
             else:
                 #ptx_hash = self.Config.MsgType.PARENT_TX_MSG.decode() + self.Crypto.to_HMAC(packb(unpacked_ptx_msg))
                 inputs_idx = self.TX_MSG_FIELD_INDEX["input_txs"]
-                msg_inputs = list(set([utxi for utxi in [unpackb(inp)[2] for inp in ptx_msg[2]] for utxi in utxi]))
+                msg_inputs = list(set([utxi.decode() for utxi in [unpackb(inp)[2] for inp in ptx_msg[2]] for utxi in utxi]))
                     #list(set([j.decode() for j in [i[inputs_idx] for i in ptx_msg[inputs_idx]] for j in j]))
             print("msg_inputs", msg_inputs)
             for inp in msg_inputs:

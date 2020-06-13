@@ -344,7 +344,7 @@ class Node():
                                 else:
                                     raise Exception("Only 1 PTX/ permitted per Sender in block")  # todo msgType
                                     #TODO msg=PTX?
-                                msg_inputs_ids = list(set([inp for inp in [itx[2]
+                                msg_inputs_ids = list(set([inp.decode() for inp in [itx[2]
                                             for itx in [unpackb(m) for m in unpackb(
                                             verified_msgs[i][2])[2]]] for inp in inp]))  # todo validate calc vs submitted or ignore? in-msg ctx hashes
                                 print('Msg inputs hashes: ', len(msg_inputs_ids), msg_inputs_ids)
