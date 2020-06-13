@@ -75,7 +75,7 @@ class Tools():
         utc_ts = utils.Utils.utc_timestamp_b()
         unspent_input_genesis_tx = config.Config.MsgType.UNSPENT_TX.decode() + genesis_msg.ljust(32)
         print("fake unspent_input_genesis_tx", unspent_input_genesis_tx)
-        genesis_ctx = ('1', config.Config.MsgType.PARENT_TX_MSG.decode(), [[unspent_input_genesis_tx]][0],
+        genesis_ctx = ('1', config.Config.MsgType.PARENT_TX_MSG, [[unspent_input_genesis_tx]][0],
                        [g_reciever_wallet_id][0], [config.Config.MAIN_COIN][0], [b'999999999.12345678'][0], b'0.001',
                        utc_ts, g_sender_keys.vk)
         genesis_ctx_hmac = crypto.Crypto.to_HMAC(genesis_ctx)
