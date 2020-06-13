@@ -21,13 +21,14 @@ RUN apt-get update \
   && cd include \
   && scp -r leveldb /usr/local/include \
   && ldconfig \
+  && cd && mkdir node && cd node \
   && git clone https://github.com/promo888/test.git --branch x250 --single-branch \
   && cd test/venv \
   && export PYTHONPATH=$PYTHONPATH:`pwd`:/v \
   && ls \
   && cd v && ls && ls v1 \
   && python3 -V \
-  && python3 v1.py
+#  && python3 v1.py
 
 
 #EXPOSE 4444

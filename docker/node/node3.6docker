@@ -56,3 +56,41 @@ ENTRYPOINT ["/bin/bash"]
 #sudo docker build -t fxcrypto:miner0 -f ./Dockerfile ./../docker_data
 #python missing: nacl sqlite3 asyncio aiohttp
 #libsnappy-dev -y libsodium-dev build-essential git
+
+sudo docker run --name miner0 \
+-p 4444:4444 \
+-p 5555:5555 \
+-p 6666:6666 \
+-p 7777:7777 \
+-p 8888:8888 \
+-p 9999:9999 \
+--mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \
+--user root \
+--name FxCryptoMiner \
+miner0_volume
+
+--mount type=bind,src=/home/igor/PycharmProjects/test/docker/docker_data ,dst=/docker_data\
+
+
+docker volume create portainer_data
+https://clouding.io/hc/en-us/articles/360010398219-Install-Portainer-on-Ubuntu-18-04
+docker run -d -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer --name portainer --restart=always
+
+admin/12345678
+https://www.portainer.io/installation/
+sudo docker volume create portainer_data
+sudo docker run -d -p 8000:8000 -p 9000:9000 --name=portainer  --restart=always -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer
+
+
+portainer:
+      image: portainer/portainer
+      container_name: "portainer-app"
+      command: --templates http://templates/templates.json
+      networks:
+        - local
+      environment:
+        PORTAINER_ADMIN_NAME: admin
+        PORTAINER_ADMIN_PASS: admin
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+        - /opt/portainer/data:/data

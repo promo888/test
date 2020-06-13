@@ -167,7 +167,8 @@ class Wallet():
             recipients = ptx_msg[transaction.Transaction().TX_MSG_FIELD_INDEX["to_addrs"]]
             sender_addr = crypto.Crypto.to_HMAC(ptx_msg[-1])
             if len(assets) != len(amounts) or len(amounts) != len(unspent_itxs) or len(unspent_itxs) != len(recipients):
-                return False # missing data
+                #return False # missing data
+                raise Exception("missing data")
             not_existing_assets = [a for a in assets if db.Db.getDbKey(a) is None]
             if len(not_existing_assets) > 0:
                 return False #assets not yet created in the blockchain
@@ -176,7 +177,8 @@ class Wallet():
             print("insertTxsToDbWallets from sender", sender_wallet_id)
             assert sender_wallet #todo remove test
             if not sender_wallet:
-                return False
+                #return False
+                raise Exception("No Sender Wallet")
 
             for i in range(len(recipients)):
                 reciever_wallet_id = recipients[i] #config.Config.MsgType.WALLET.decode() + recipients[i]
@@ -187,7 +189,9 @@ class Wallet():
                     reciever_wallet[b"assets"][assets[i]] = {b'inputs': [], b'outputs': []}
                 if not assets[i] in sender_wallet[b"assets"]:
                     ##sender_wallet["assets"][assets[i].encode()] = {b'inputs': [], b'outputs': []}
-                    return False
+                    ##return False
+                    raise Exception("%s asset missing in Sender wallet" % assets[i])
+
                 #todo to remove redundant bytes inputs/outputs 1/0, assets a, version v, contracts c
                 reciever_utxi = self.Config.MsgType.UNSPENT_TX.decode() + crypto.Crypto.to_HMAC((ptx_msg[0], ptx_msg[1], ptx_msg[2][0], ptx_msg[3][i], ptx_msg[4][i], ptx_msg[5][0], ptx_msg[6], ptx_msg[8], ptx_msg[9]))
                 print("Wallet %s reciever_utxi/amount/ptx_hash: %s/%s/%s" % (recipients[i], reciever_utxi, amounts[i], ptx_hash))
