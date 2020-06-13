@@ -436,9 +436,9 @@ class Transaction():
             for inp in msg_inputs:
 
                 #print("self.DB.isDBvalue? [inp[1:]] %s - %s" % ((inp[1:], self.DB.isDBvalue(inp[1:]))))
-                print("self.DB.isDBvalue? ['*' + inp[1:]] %s - %s" % (("*" + inp[1:], self.DB.isDBkey("*" + inp[1:]))))
-                print("self.DB.isDBvalue? ['-' + inp[1:]] %s - %s" % (("-" + inp[1:], self.DB.isDBkey("-" + inp[1:]))))
-                print("self.DB.isDBvalue? ['+' + inp[1:]] %s - %s" % (("+" + inp[1:], self.DB.isDBkey("+" + inp[1:]))))
+                # print("self.DB.isDBvalue? ['*' + inp[1:]] %s - %s" % (("*" + inp[1:], self.DB.isDBkey("*" + inp[1:]))))
+                # print("self.DB.isDBvalue? ['-' + inp[1:]] %s - %s" % (("-" + inp[1:], self.DB.isDBkey("-" + inp[1:]))))
+                # print("self.DB.isDBvalue? ['+' + inp[1:]] %s - %s" % (("+" + inp[1:], self.DB.isDBkey("+" + inp[1:]))))
 
                 #todo range query[1:] + configMsgType + delPrintCaller
                 if self.DB.isDBkey("*" + inp[1:], print_caller='arePtxInputsValid') and \
