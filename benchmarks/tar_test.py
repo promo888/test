@@ -24,7 +24,29 @@ test2 = '%sbuild_server/Releases/yuniti_ui/8.15.1.0/yuniti_ui_8.15.1.0.tar.gz' %
 def untar_recursive(path,extract_to):
     excluded = ['mongo', 'redis', 'node', 'packages', 'fixtures']
     with tarfile.open(path, 'r') as tf:
-        tf.extractall(extract_to)
+        
+        import os
+        
+        def is_within_directory(directory, target):
+            
+            abs_directory = os.path.abspath(directory)
+            abs_target = os.path.abspath(target)
+        
+            prefix = os.path.commonprefix([abs_directory, abs_target])
+            
+            return prefix == abs_directory
+        
+        def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+        
+            for member in tar.getmembers():
+                member_path = os.path.join(path, member.name)
+                if not is_within_directory(path, member_path):
+                    raise Exception("Attempted Path Traversal in Tar File")
+        
+            tar.extractall(path, members, numeric_owner=numeric_owner) 
+            
+        
+        safe_extract(tf, extract_to)
         tars = glob.glob('%s*tar*' % extract_to)
         for t in tars: os.remove(t)
         # for ex in excluded:
